@@ -20,7 +20,7 @@ public class CORSConfig {
      * default: returns any requested origin as valid
      */
     @ConfigItem
-    public List<String> origins;
+    public Optional<List<String>> origins;
 
     /**
      * HTTP methods allowed for CORS
@@ -31,7 +31,7 @@ public class CORSConfig {
      * default: returns any requested method as valid
      */
     @ConfigItem
-    public List<HttpMethod> methods;
+    public Optional<List<HttpMethod>> methods;
 
     /**
      * HTTP headers allowed for CORS
@@ -42,7 +42,7 @@ public class CORSConfig {
      * default: returns any requested header as valid
      */
     @ConfigItem
-    public List<String> headers;
+    public Optional<List<String>> headers;
 
     /**
      * HTTP headers exposed in CORS
@@ -52,7 +52,7 @@ public class CORSConfig {
      * default: empty
      */
     @ConfigItem
-    public List<String> exposedHeaders;
+    public Optional<List<String>> exposedHeaders;
 
     /**
      * The `Access-Control-Max-Age` response header value indicating
@@ -60,6 +60,17 @@ public class CORSConfig {
      */
     @ConfigItem
     public Optional<Duration> accessControlMaxAge;
+
+    /**
+     * The `Access-Control-Allow-Credentials` header is used to tell the
+     * browsers to expose the response to front-end JavaScript code when
+     * the request’s credentials mode Request.credentials is “include”.
+     *
+     * The value of this header will default to `true` if `quarkus.http.cors.origins` property is set and
+     * there is a match with the precise `Origin` header and that header is not '*'.
+     */
+    @ConfigItem
+    public Optional<Boolean> accessControlAllowCredentials;
 
     @Override
     public String toString() {
@@ -69,6 +80,7 @@ public class CORSConfig {
                 ", headers=" + headers +
                 ", exposedHeaders=" + exposedHeaders +
                 ", accessControlMaxAge=" + accessControlMaxAge +
+                ", accessControlAllowCredentials=" + accessControlAllowCredentials +
                 '}';
     }
 }

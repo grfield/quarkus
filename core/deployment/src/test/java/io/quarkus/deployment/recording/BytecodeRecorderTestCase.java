@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.IOException;
 import java.net.URL;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -25,8 +24,8 @@ import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Test;
 
-import io.quarkus.deployment.ClassOutput;
 import io.quarkus.deployment.TestClassLoader;
+import io.quarkus.gizmo.ClassOutput;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.StartupContext;
@@ -130,6 +129,11 @@ public class BytecodeRecorderTestCase {
             TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
             recorder.bean(new TestJavaBean("A string", 99));
         }, new TestJavaBean("A string", 99));
+
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.bean(new TestJavaBeanSubclass("A string", 99, "PUT"));
+        }, new TestJavaBeanSubclass("A string", 99, "PUT"));
     }
 
     @Test
@@ -266,6 +270,11 @@ public class BytecodeRecorderTestCase {
             TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
             recorder.object(emptyOptional);
         }, emptyOptional);
+        Optional<TestJavaBean> optionalWithCustomClass = Optional.of(new TestJavaBean());
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.object(optionalWithCustomClass);
+        }, optionalWithCustomClass);
         URL url = new URL("https://quarkus.io");
         runTest(generator -> {
             TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
@@ -318,13 +327,8 @@ public class BytecodeRecorderTestCase {
         }
 
         @Override
-        public void writeClass(boolean applicationClass, String className, byte[] data) throws IOException {
-            tcl.write(className, data);
-        }
-
-        @Override
-        public void writeResource(String name, byte[] data) throws IOException {
-            throw new UnsupportedOperationException();
+        public void write(String s, byte[] bytes) {
+            tcl.write(s, bytes);
         }
     }
 }

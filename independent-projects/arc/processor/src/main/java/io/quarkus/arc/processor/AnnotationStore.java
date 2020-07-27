@@ -2,18 +2,20 @@ package io.quarkus.arc.processor;
 
 import io.quarkus.arc.processor.AnnotationsTransformer.TransformationContext;
 import io.quarkus.arc.processor.BuildExtension.BuildContext;
-import io.quarkus.arc.processor.BuildExtension.Key;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.AnnotationTarget.Kind;
 import org.jboss.jandex.DotName;
+import org.jboss.jandex.FieldInfo;
+import org.jboss.jandex.MethodInfo;
 
 /**
  * Applies {@link AnnotationsTransformer}s and caches the results of transformations.
@@ -21,9 +23,9 @@ import org.jboss.jandex.DotName;
  * @author Martin Kouba
  * @see AnnotationsTransformer
  */
-public class AnnotationStore {
+public final class AnnotationStore {
 
-    private final ConcurrentMap<AnnotationTarget, Collection<AnnotationInstance>> transformed;
+    private final ConcurrentMap<AnnotationTargetKey, Collection<AnnotationInstance>> transformed;
 
     private final EnumMap<Kind, List<AnnotationsTransformer>> transformersMap;
 
@@ -51,7 +53,7 @@ public class AnnotationStore {
      */
     public Collection<AnnotationInstance> getAnnotations(AnnotationTarget target) {
         if (transformed != null) {
-            return transformed.computeIfAbsent(target, this::transform);
+            return transformed.computeIfAbsent(new AnnotationTargetKey(target), this::transform);
         }
         return getOriginalAnnotations(target);
     }
@@ -89,13 +91,14 @@ public class AnnotationStore {
         return Annotations.containsAny(getAnnotations(target), names);
     }
 
-    private Collection<AnnotationInstance> transform(AnnotationTarget target) {
+    private Collection<AnnotationInstance> transform(AnnotationTargetKey key) {
+        AnnotationTarget target = key.target;
         Collection<AnnotationInstance> annotations = getOriginalAnnotations(target);
         List<AnnotationsTransformer> transformers = transformersMap.get(target.kind());
         if (transformers.isEmpty()) {
             return annotations;
         }
-        TransformationContextImpl transformationContext = new TransformationContextImpl(target, annotations);
+        TransformationContextImpl transformationContext = new TransformationContextImpl(buildContext, target, annotations);
         for (AnnotationsTransformer transformer : transformers) {
             transformer.transform(transformationContext);
         }
@@ -130,46 +133,80 @@ public class AnnotationStore {
         return found;
     }
 
-    class TransformationContextImpl implements TransformationContext {
+    static class TransformationContextImpl extends AnnotationsTransformationContext<Collection<AnnotationInstance>>
+            implements TransformationContext {
 
-        private final AnnotationTarget target;
-
-        private Collection<AnnotationInstance> annotations;
-
-        TransformationContextImpl(AnnotationTarget target, Collection<AnnotationInstance> annotations) {
-            this.target = target;
-            this.annotations = annotations;
-        }
-
-        @Override
-        public <V> V get(Key<V> key) {
-            return buildContext.get(key);
-        }
-
-        @Override
-        public <V> V put(Key<V> key, V value) {
-            return buildContext.put(key, value);
-        }
-
-        @Override
-        public AnnotationTarget getTarget() {
-            return target;
-        }
-
-        @Override
-        public Collection<AnnotationInstance> getAnnotations() {
-            return annotations;
-        }
-
-        void setAnnotations(Collection<AnnotationInstance> annotations) {
-            this.annotations = annotations;
+        public TransformationContextImpl(BuildContext buildContext, AnnotationTarget target,
+                Collection<AnnotationInstance> annotations) {
+            super(buildContext, target, annotations);
         }
 
         @Override
         public Transformation transform() {
-            return new Transformation(this);
+            return new Transformation(new ArrayList<>(getAnnotations()), getTarget(), this::setAnnotations);
         }
 
+    }
+
+    /**
+     * We cannot use annotation target directly as a key in a Map. Only {@link MethodInfo} overrides equals/hashCode.
+     */
+    static final class AnnotationTargetKey {
+
+        final AnnotationTarget target;
+
+        public AnnotationTargetKey(AnnotationTarget target) {
+            this.target = target;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (obj == null) {
+                return false;
+            }
+            if (getClass() != obj.getClass()) {
+                return false;
+            }
+            AnnotationTargetKey other = (AnnotationTargetKey) obj;
+            if (target.kind() != other.target.kind()) {
+                return false;
+            }
+            switch (target.kind()) {
+                case METHOD:
+                    return target.asMethod().equals(other.target);
+                case FIELD:
+                    FieldInfo field = target.asField();
+                    FieldInfo otherField = other.target.asField();
+                    return Objects.equals(field.name(), otherField.name())
+                            && Objects.equals(field.declaringClass().name(), otherField.declaringClass().name());
+                case CLASS:
+                    return target.asClass().name().equals(other.target.asClass().name());
+                default:
+                    throw unsupportedAnnotationTarget(target);
+            }
+        }
+
+        @Override
+        public int hashCode() {
+            switch (target.kind()) {
+                case METHOD:
+                    return target.asMethod().hashCode();
+                case FIELD:
+                    return Objects.hash(target.asField().name(), target.asField().declaringClass().name());
+                case CLASS:
+                    return target.asClass().name().hashCode();
+                default:
+                    throw unsupportedAnnotationTarget(target);
+            }
+        }
+
+    }
+
+    private static IllegalArgumentException unsupportedAnnotationTarget(AnnotationTarget target) {
+        return new IllegalArgumentException("Unsupported annotation target: " + target.kind());
     }
 
 }

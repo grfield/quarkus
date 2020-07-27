@@ -2,15 +2,22 @@ package io.quarkus.vertx.http.runtime;
 
 import static org.jboss.logging.Logger.getLogger;
 
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 import org.jboss.logging.Logger;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import io.quarkus.runtime.TemplateHtmlBuilder;
+import io.quarkus.security.AuthenticationFailedException;
+import io.quarkus.security.ForbiddenException;
+import io.quarkus.security.UnauthorizedException;
+import io.quarkus.vertx.http.runtime.security.HttpAuthenticator;
 import io.vertx.core.Handler;
 import io.vertx.ext.web.RoutingContext;
 
@@ -39,19 +46,52 @@ public class QuarkusErrorHandler implements Handler<RoutingContext> {
             event.response().end();
             return;
         }
+        //this can happen if there is no auth mechanisms
+        if (event.failure() instanceof UnauthorizedException) {
+            HttpAuthenticator authenticator = event.get(HttpAuthenticator.class.getName());
+            if (authenticator != null) {
+                authenticator.sendChallenge(event).subscribe().with(new Consumer<Boolean>() {
+                    @Override
+                    public void accept(Boolean aBoolean) {
+                        event.response().end();
+                    }
+                }, new Consumer<Throwable>() {
+                    @Override
+                    public void accept(Throwable throwable) {
+                        event.fail(throwable);
+                    }
+                });
+            } else {
+                event.response().setStatusCode(HttpResponseStatus.UNAUTHORIZED.code()).end();
+            }
+            return;
+        }
+        if (event.failure() instanceof ForbiddenException) {
+            event.response().setStatusCode(HttpResponseStatus.FORBIDDEN.code()).end();
+            return;
+        }
+        if (event.failure() instanceof AuthenticationFailedException) {
+            return; //handled elsewhere
+        }
         event.response().setStatusCode(500);
         String uuid = BASE_ID + ERROR_COUNT.incrementAndGet();
         String details = "";
         String stack = "";
         Throwable exception = event.failure();
         if (showStack && exception != null) {
-            details = generateHeaderMessage(exception, uuid == null ? null : uuid.toString());
+            details = generateHeaderMessage(exception, uuid);
             stack = generateStackTrace(exception);
 
-        } else if (uuid != null) {
+        } else {
             details += "Error id " + uuid;
         }
-        log.errorf(exception, "HTTP Request to %s failed, error id: %s", event.request().uri(), uuid);
+        if (event.failure() instanceof IOException) {
+            log.debugf(exception,
+                    "IOError processing HTTP request to %s failed, the client likely terminated the connection. Error id: %s",
+                    event.request().uri(), uuid);
+        } else {
+            log.errorf(exception, "HTTP Request to %s failed, error id: %s", event.request().uri(), uuid);
+        }
         String accept = event.request().getHeader("Accept");
         if (accept != null && accept.contains("application/json")) {
             event.response().headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=utf-8");
@@ -62,7 +102,11 @@ public class QuarkusErrorHandler implements Handler<RoutingContext> {
         } else {
             //We default to HTML representation
             event.response().headers().set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=utf-8");
-            event.response().end(new TemplateHtmlBuilder("Internal Server Error", details, details).stack(stack).toString());
+            final TemplateHtmlBuilder htmlBuilder = new TemplateHtmlBuilder("Internal Server Error", details, details);
+            if (showStack && exception != null) {
+                htmlBuilder.stack(exception);
+            }
+            event.response().end(htmlBuilder.toString());
         }
     }
 

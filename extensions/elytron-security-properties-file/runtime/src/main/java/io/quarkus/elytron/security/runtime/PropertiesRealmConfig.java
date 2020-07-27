@@ -24,7 +24,7 @@ public class PropertiesRealmConfig {
     public String realmName;
 
     /**
-     * If the properties store is enabled.
+     * Determine whether security via the file realm is enabled.
      */
     @ConfigItem
     public boolean enabled;
@@ -37,51 +37,21 @@ public class PropertiesRealmConfig {
     public boolean plainText;
 
     /**
-     * The location of the users property resource
+     * Classpath resource name of properties file containing user to password mappings. See
+     * <a href="#users-properties">Users.properties</a>.
      */
     @ConfigItem(defaultValue = "users.properties")
     public String users;
 
     /**
-     * The location of the roles property file
+     * Classpath resource name of properties file containing user to role mappings. See
+     * <a href="#roles-properties">Roles.properties</a>.
      */
     @ConfigItem(defaultValue = "roles.properties")
     public String roles;
 
     public String help() {
-        return "{enabled,users,roles,authMechanism,realmName}";
-    }
-
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-    }
-
-    public String getUsers() {
-        return users;
-    }
-
-    public void setUsers(String users) {
-        this.users = users;
-    }
-
-    public String getRoles() {
-        return roles;
-    }
-
-    public void setRoles(String roles) {
-        this.roles = roles;
-    }
-
-    public String getRealmName() {
-        return realmName;
-    }
-
-    public void setRealmName(String realmName) {
-        this.realmName = realmName;
+        return "{enabled,users,roles,realm-name,plain-text}";
     }
 
     @Override
@@ -91,6 +61,7 @@ public class PropertiesRealmConfig {
                 ", enabled=" + enabled +
                 ", users='" + users + '\'' +
                 ", roles='" + roles + '\'' +
+                ", plainText=" + plainText +
                 '}';
     }
 }

@@ -1,19 +1,21 @@
 package io.quarkus.elytron.security.oauth2.runtime.auth;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
+import java.util.Collections;
+import java.util.Set;
 
 import javax.enterprise.context.ApplicationScoped;
-
-import org.jboss.logging.Logger;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.quarkus.security.credential.TokenCredential;
 import io.quarkus.security.identity.IdentityProviderManager;
 import io.quarkus.security.identity.SecurityIdentity;
+import io.quarkus.security.identity.request.AuthenticationRequest;
 import io.quarkus.security.identity.request.TokenAuthenticationRequest;
+import io.quarkus.vertx.http.runtime.security.ChallengeData;
 import io.quarkus.vertx.http.runtime.security.HttpAuthenticationMechanism;
+import io.quarkus.vertx.http.runtime.security.HttpCredentialTransport;
+import io.smallrye.mutiny.Uni;
 import io.vertx.ext.web.RoutingContext;
 
 /**
@@ -22,7 +24,10 @@ import io.vertx.ext.web.RoutingContext;
 @ApplicationScoped
 public class OAuth2AuthMechanism implements HttpAuthenticationMechanism {
 
-    private static final Logger log = Logger.getLogger(OAuth2AuthMechanism.class);
+    protected static final ChallengeData CHALLENGE_DATA = new ChallengeData(
+            HttpResponseStatus.UNAUTHORIZED.code(),
+            HttpHeaderNames.WWW_AUTHENTICATE,
+            "Bearer {token}");
 
     /**
      * Extract the Authorization header and validate the bearer token if it exists. If it does, and is validated, this
@@ -34,7 +39,7 @@ public class OAuth2AuthMechanism implements HttpAuthenticationMechanism {
      * @return one of AUTHENTICATED, NOT_AUTHENTICATED or NOT_ATTEMPTED depending on the header and authentication outcome.
      */
     @Override
-    public CompletionStage<SecurityIdentity> authenticate(RoutingContext context,
+    public Uni<SecurityIdentity> authenticate(RoutingContext context,
             IdentityProviderManager identityProviderManager) {
         String authHeader = context.request().headers().get("Authorization");
         String bearerToken = authHeader != null ? authHeader.substring(7) : null;
@@ -45,14 +50,21 @@ public class OAuth2AuthMechanism implements HttpAuthenticationMechanism {
 
         }
         // No suitable header has been found in this request,
-        return CompletableFuture.completedFuture(null);
+        return Uni.createFrom().nullItem();
     }
 
     @Override
-    public CompletionStage<Boolean> sendChallenge(RoutingContext context) {
-        context.response().headers().set(HttpHeaderNames.WWW_AUTHENTICATE, "Bearer {token}");
-        context.response().setStatusCode(HttpResponseStatus.UNAUTHORIZED.code());
-        log.debugf("Sending Bearer {token} challenge for %s", context);
-        return CompletableFuture.completedFuture(true);
+    public Uni<ChallengeData> getChallenge(RoutingContext context) {
+        return Uni.createFrom().item(CHALLENGE_DATA);
+    }
+
+    @Override
+    public Set<Class<? extends AuthenticationRequest>> getCredentialTypes() {
+        return Collections.singleton(TokenAuthenticationRequest.class);
+    }
+
+    @Override
+    public HttpCredentialTransport getCredentialTransport() {
+        return new HttpCredentialTransport(HttpCredentialTransport.Type.AUTHORIZATION, "bearer");
     }
 }

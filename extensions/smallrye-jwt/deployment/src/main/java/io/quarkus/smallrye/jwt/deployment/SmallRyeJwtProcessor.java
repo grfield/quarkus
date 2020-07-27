@@ -4,6 +4,8 @@ import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
+import org.eclipse.microprofile.config.Config;
+import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.jwt.Claim;
 import org.eclipse.microprofile.jwt.Claims;
 import org.jboss.jandex.AnnotationInstance;
@@ -20,20 +22,26 @@ import io.quarkus.arc.processor.BuildExtension;
 import io.quarkus.arc.processor.BuiltinScope;
 import io.quarkus.arc.processor.DotNames;
 import io.quarkus.arc.processor.InjectionPointInfo;
-import io.quarkus.deployment.QuarkusConfig;
+import io.quarkus.deployment.Capability;
+import io.quarkus.deployment.Feature;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
+import io.quarkus.deployment.builditem.CapabilityBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
-import io.quarkus.deployment.builditem.substrate.SubstrateResourceBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.NativeImageResourceBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.security.deployment.JCAProviderBuildItem;
 import io.quarkus.smallrye.jwt.runtime.auth.JWTAuthMechanism;
 import io.quarkus.smallrye.jwt.runtime.auth.JwtPrincipalProducer;
 import io.quarkus.smallrye.jwt.runtime.auth.MpJwtValidator;
 import io.quarkus.smallrye.jwt.runtime.auth.RawOptionalClaimCreator;
+import io.smallrye.jwt.algorithm.SignatureAlgorithm;
 import io.smallrye.jwt.auth.cdi.ClaimValueProducer;
 import io.smallrye.jwt.auth.cdi.CommonJwtProducer;
 import io.smallrye.jwt.auth.cdi.JsonValueProducer;
 import io.smallrye.jwt.auth.cdi.RawClaimTypeProducer;
+import io.smallrye.jwt.auth.principal.DefaultJWTParser;
+import io.smallrye.jwt.build.impl.JwtProviderImpl;
 import io.smallrye.jwt.config.JWTAuthContextInfoProvider;
 
 /**
@@ -46,7 +54,12 @@ class SmallRyeJwtProcessor {
     private static final DotName CLAIM_NAME = DotName.createSimple(Claim.class.getName());
     private static final DotName CLAIMS_NAME = DotName.createSimple(Claims.class.getName());
 
-    SmallryeJWTConfig config;
+    SmallRyeJWTConfig config;
+
+    @BuildStep
+    CapabilityBuildItem capability() {
+        return new CapabilityBuildItem(Capability.JWT);
+    }
 
     /**
      * Register the CDI beans that are needed by the MP-JWT extension
@@ -54,7 +67,8 @@ class SmallRyeJwtProcessor {
      * @param additionalBeans - producer for additional bean items
      */
     @BuildStep
-    void registerAdditionalBeans(BuildProducer<AdditionalBeanBuildItem> additionalBeans) {
+    void registerAdditionalBeans(BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ReflectiveClassBuildItem> reflectiveClasses) {
         if (config.enabled) {
             AdditionalBeanBuildItem.Builder unremovable = AdditionalBeanBuildItem.builder().setUnremovable();
             unremovable.addBeanClass(MpJwtValidator.class);
@@ -64,12 +78,16 @@ class SmallRyeJwtProcessor {
         }
         AdditionalBeanBuildItem.Builder removable = AdditionalBeanBuildItem.builder();
         removable.addBeanClass(JWTAuthContextInfoProvider.class);
+        removable.addBeanClass(DefaultJWTParser.class);
         removable.addBeanClass(CommonJwtProducer.class);
         removable.addBeanClass(RawClaimTypeProducer.class);
         removable.addBeanClass(JsonValueProducer.class);
         removable.addBeanClass(JwtPrincipalProducer.class);
         removable.addBeanClass(Claim.class);
         additionalBeans.produce(removable.build());
+
+        reflectiveClasses.produce(new ReflectiveClassBuildItem(true, true, SignatureAlgorithm.class));
+        reflectiveClasses.produce(new ReflectiveClassBuildItem(true, true, JwtProviderImpl.class));
     }
 
     /**
@@ -79,21 +97,23 @@ class SmallRyeJwtProcessor {
      */
     @BuildStep
     FeatureBuildItem feature() {
-        return new FeatureBuildItem(FeatureBuildItem.SMALLRYE_JWT);
+        return new FeatureBuildItem(Feature.SMALLRYE_JWT);
     }
 
     /**
-     * If the configuration specified a deployment local key resource, register it with substrate
+     * If the configuration specified a deployment local key resource, register it in native mode
      *
-     * @return SubstrateResourceBuildItem
+     * @return NativeImageResourceBuildItem
      */
     @BuildStep
-    SubstrateResourceBuildItem registerSubstrateResources() {
-        String publicKeyLocation = QuarkusConfig.getString("mp.jwt.verify.publickey.location", null, true);
-        if (publicKeyLocation != null) {
+    NativeImageResourceBuildItem registerNativeImageResources() {
+        final Config config = ConfigProvider.getConfig();
+        Optional<String> publicKeyLocationOpt = config.getOptionalValue("mp.jwt.verify.publickey.location", String.class);
+        if (publicKeyLocationOpt.isPresent()) {
+            final String publicKeyLocation = publicKeyLocationOpt.get();
             if (publicKeyLocation.indexOf(':') < 0 || publicKeyLocation.startsWith("classpath:")) {
                 log.infof("Adding %s to native image", publicKeyLocation);
-                return new SubstrateResourceBuildItem(publicKeyLocation);
+                return new NativeImageResourceBuildItem(publicKeyLocation);
             }
         }
         return null;

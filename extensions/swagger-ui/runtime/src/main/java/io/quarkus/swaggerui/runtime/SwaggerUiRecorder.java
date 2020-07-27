@@ -10,8 +10,9 @@ import io.vertx.ext.web.handler.StaticHandler;
 public class SwaggerUiRecorder {
     public Handler<RoutingContext> handler(String swaggerUiFinalDestination, String swaggerUiPath) {
 
-        Handler<RoutingContext> handler = StaticHandler.create().setAllowRootFileSystemAccess(true)
-                .setWebRoot(swaggerUiFinalDestination);
+        StaticHandler staticHandler = StaticHandler.create().setAllowRootFileSystemAccess(true)
+                .setWebRoot(swaggerUiFinalDestination)
+                .setDefaultContentEncoding("UTF-8");
 
         return new Handler<RoutingContext>() {
             @Override
@@ -27,7 +28,7 @@ public class SwaggerUiRecorder {
                     return;
                 }
 
-                handler.handle(event);
+                staticHandler.handle(event);
             }
         };
     }

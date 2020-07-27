@@ -5,6 +5,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
@@ -15,12 +16,6 @@ import io.quarkus.runtime.annotations.ConfigRoot;
  */
 @ConfigRoot(phase = ConfigPhase.RUN_TIME)
 public class JaegerConfig {
-
-    /**
-     * Defines if the Jaeger extension is enabled.
-     */
-    @ConfigItem(defaultValue = "true")
-    public boolean enabled;
 
     /**
      * The traces endpoint, in case the client should connect directly to the Collector,
@@ -63,7 +58,7 @@ public class JaegerConfig {
      * The reporter's maximum queue size
      */
     @ConfigItem
-    public Optional<Integer> reporterMaxQueueSize;
+    public OptionalInt reporterMaxQueueSize;
 
     /**
      * The reporter's flush interval
@@ -116,5 +111,11 @@ public class JaegerConfig {
      */
     @ConfigItem
     public Optional<String> senderFactory;
+
+    /**
+     * Whether the trace context should be logged.
+     */
+    @ConfigItem(defaultValue = "true")
+    public Boolean logTraceContext;
 
 }

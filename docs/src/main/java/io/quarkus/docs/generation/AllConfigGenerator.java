@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -20,36 +21,41 @@ import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.resolution.ArtifactRequest;
 import org.eclipse.aether.resolution.ArtifactResult;
 
-import com.fasterxml.jackson.core.JsonParseException;
-import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategy;
 
+import io.quarkus.annotation.processor.generate_doc.ConfigDocGeneratedOutput;
 import io.quarkus.annotation.processor.generate_doc.ConfigDocItem;
 import io.quarkus.annotation.processor.generate_doc.ConfigDocItemScanner;
 import io.quarkus.annotation.processor.generate_doc.ConfigDocSection;
 import io.quarkus.annotation.processor.generate_doc.ConfigDocWriter;
 import io.quarkus.annotation.processor.generate_doc.DocGeneratorUtil;
-import io.quarkus.bootstrap.resolver.AppModelResolverException;
+import io.quarkus.bootstrap.resolver.maven.BootstrapMavenException;
 import io.quarkus.bootstrap.resolver.maven.MavenArtifactResolver;
 import io.quarkus.docs.generation.ExtensionJson.Extension;
 
 public class AllConfigGenerator {
-    public static void main(String[] args)
-            throws AppModelResolverException, JsonParseException, JsonMappingException, IOException {
-        if (args.length != 1) {
-            System.err.println("Missing version parameter.");
-            System.exit(1);
+    public static void main(String[] args) throws BootstrapMavenException, IOException {
+        if (args.length != 2) {
+            // exit 1 will break Maven
+            throw new IllegalArgumentException("Usage: <version> <extension.json>");
         }
         String version = args[0];
+        String extensionFile = args[1];
 
         // This is where we produce the entire list of extensions
-        File jsonFile = new File("devtools/core-extensions-json/target/extensions.json");
+        File jsonFile = new File(extensionFile);
         if (!jsonFile.exists()) {
             System.err.println("WARNING: could not generate all-config file because extensions list is missing: " + jsonFile);
-            System.exit(0);
+            // exit 0 will break Maven
+            return;
         }
-        ObjectMapper mapper = new ObjectMapper();
-        MavenArtifactResolver resolver = MavenArtifactResolver.builder().build();
+        ObjectMapper mapper = new ObjectMapper()
+                .enable(JsonParser.Feature.ALLOW_COMMENTS)
+                .enable(JsonParser.Feature.ALLOW_NUMERIC_LEADING_ZEROS)
+                .setPropertyNamingStrategy(PropertyNamingStrategy.KEBAB_CASE);
+        MavenArtifactResolver resolver = MavenArtifactResolver.builder().setWorkspaceDiscovery(false).build();
 
         // let's read it (and ignore the fields we don't need)
         ExtensionJson extensionJson = mapper.readValue(jsonFile, ExtensionJson.class);
@@ -67,7 +73,7 @@ public class AllConfigGenerator {
             extensionsByGav.put(extension.groupId + ":" + extension.artifactId, extension);
         }
 
-        // examine all the extension jars 
+        // examine all the extension jars
         List<ArtifactRequest> deploymentRequests = new ArrayList<>(extensionJson.extensions.size());
         for (ArtifactResult result : resolver.resolve(requests)) {
             Artifact artifact = result.getArtifact();
@@ -80,7 +86,8 @@ public class AllConfigGenerator {
                 // see if it has a deployment artifact we need to load
                 ZipEntry entry = zf.getEntry("META-INF/quarkus-extension.properties");
                 if (entry != null) {
-                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(zf.getInputStream(entry)))) {
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(zf.getInputStream(entry), StandardCharsets.UTF_8))) {
                         Properties properties = new Properties();
                         properties.load(reader);
                         String deploymentGav = (String) properties.get("deployment-artifact");
@@ -114,11 +121,17 @@ public class AllConfigGenerator {
         ConfigDocItemScanner configDocItemScanner = new ConfigDocItemScanner();
         Map<String, List<ConfigDocItem>> docItemsByConfigRoots = configDocItemScanner
                 .loadAllExtensionsConfigurationItems();
+        Map<String, String> artifactIdsByName = new HashMap<>();
         ConfigDocWriter configDocWriter = new ConfigDocWriter();
 
         // build a list of sorted config items by extension
         List<ConfigDocItem> allItems = new ArrayList<>();
         SortedMap<String, List<ConfigDocItem>> sortedConfigItemsByExtension = new TreeMap<>();
+
+        // Temporary fix for https://github.com/quarkusio/quarkus/issues/5214 until we figure out how to fix it
+        Extension openApi = extensionsByGav.get("io.quarkus:quarkus-smallrye-openapi");
+        if (openApi != null)
+            extensionsByConfigRoots.put("io.quarkus.smallrye.openapi.common.deployment.SmallRyeOpenApiConfig", openApi);
 
         // sort extensions by name, assign their config items based on their config roots
         for (Entry<String, Extension> entry : extensionsByConfigRoots.entrySet()) {
@@ -134,9 +147,15 @@ public class AllConfigGenerator {
                     System.err.println("WARNING: Extension name missing for " + extensionGav + " using guessed extension name: "
                             + extensionName);
                 }
-                List<ConfigDocItem> configItems = sortedConfigItemsByExtension.computeIfAbsent(extensionName,
-                        k -> new ArrayList<>());
-                configItems.addAll(items);
+                artifactIdsByName.put(extensionName, entry.getValue().artifactId);
+                List<ConfigDocItem> existingConfigDocItems = sortedConfigItemsByExtension.get(extensionName);
+                if (existingConfigDocItems != null) {
+                    DocGeneratorUtil.appendConfigItemsIntoExistingOnes(existingConfigDocItems, items);
+                } else {
+                    ArrayList<ConfigDocItem> configItems = new ArrayList<>();
+                    sortedConfigItemsByExtension.put(extensionName, configItems);
+                    configItems.addAll(items);
+                }
             }
         }
 
@@ -144,29 +163,43 @@ public class AllConfigGenerator {
         for (Map.Entry<String, List<ConfigDocItem>> entry : sortedConfigItemsByExtension.entrySet()) {
             final List<ConfigDocItem> configDocItems = entry.getValue();
             // sort the items
-            ConfigDocWriter.sort(configDocItems);
+            DocGeneratorUtil.sort(configDocItems);
             // insert a header
             ConfigDocSection header = new ConfigDocSection();
+            header.setShowSection(true);
             header.setSectionDetailsTitle(entry.getKey());
+            header.setAnchorPrefix(artifactIdsByName.get(entry.getKey()));
+            header.setName(artifactIdsByName.get(entry.getKey()));
             allItems.add(new ConfigDocItem(header, null));
             // add all the configs for this extension
             allItems.addAll(configDocItems);
         }
 
         // write our docs
-        configDocWriter.writeAllExtensionConfigDocumentation(allItems);
+        ConfigDocGeneratedOutput allConfigGeneratedOutput = new ConfigDocGeneratedOutput("quarkus-all-config.adoc", true,
+                allItems,
+                false);
+        configDocWriter.writeAllExtensionConfigDocumentation(allConfigGeneratedOutput);
     }
 
     private static String guessExtensionNameFromDocumentationFileName(String docFileName) {
         // sanitise
-        if (docFileName.startsWith("quarkus-"))
+        if (docFileName.startsWith("quarkus-")) {
             docFileName = docFileName.substring(8);
-        if (docFileName.endsWith(".adoc"))
+        }
+
+        if (docFileName.endsWith(".adoc")) {
             docFileName = docFileName.substring(0, docFileName.length() - 5);
-        if (docFileName.endsWith("-config"))
+        }
+
+        if (docFileName.endsWith("-config")) {
             docFileName = docFileName.substring(0, docFileName.length() - 7);
-        if (docFileName.endsWith("-configuration"))
+        }
+
+        if (docFileName.endsWith("-configuration")) {
             docFileName = docFileName.substring(0, docFileName.length() - 14);
+        }
+
         docFileName = docFileName.replace('-', ' ');
         return capitalize(docFileName);
     }
@@ -193,8 +226,10 @@ public class AllConfigGenerator {
             throws IOException {
         ZipEntry entry = zf.getEntry("META-INF/quarkus-config-roots.list");
         if (entry != null) {
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(zf.getInputStream(entry)))) {
-                reader.lines().map(String::trim).filter(str -> !str.isEmpty())
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(zf.getInputStream(entry), StandardCharsets.UTF_8))) {
+                // make sure we turn $ into . because javadoc-scanned class names are dot-separated
+                reader.lines().map(String::trim).filter(str -> !str.isEmpty()).map(str -> str.replace('$', '.'))
                         .forEach(klass -> extensionsByConfigRoots.put(klass, extension));
             }
         }

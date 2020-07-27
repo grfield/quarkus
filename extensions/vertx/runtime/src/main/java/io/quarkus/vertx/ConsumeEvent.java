@@ -12,11 +12,9 @@ import io.vertx.core.eventbus.MessageCodec;
  * Marks a business method to be automatically registered as a Vertx message consumer.
  * <p>
  * The method must accept exactly one parameter. If it accepts {@link io.vertx.core.eventbus.Message} then the return type must
- * be void. For any other
- * type the {@link io.vertx.core.eventbus.Message#body()}
- * is passed as the parameter value and the method may return an object that is passed to
- * {@link io.vertx.core.eventbus.Message#reply(Object)}, either
- * directly or via
+ * be void. For any other type the {@link io.vertx.core.eventbus.Message#body()} is passed as the parameter value and the method
+ * may return an object that is passed to
+ * {@link io.vertx.core.eventbus.Message#reply(Object)}, either directly or via
  * {@link java.util.concurrent.CompletionStage#thenAccept(java.util.function.Consumer)} in case of the method returns a
  * completion stage.
  * 
@@ -41,6 +39,9 @@ import io.vertx.core.eventbus.MessageCodec;
  * }
  * </pre>
  * 
+ * <p>
+ * The CDI request context is active during notification of the registered message consumer.
+ * 
  * @see io.vertx.core.eventbus.EventBus
  */
 @Target({ METHOD })
@@ -51,6 +52,14 @@ public @interface ConsumeEvent {
      * Failure code used when a message consumer method throws an exception.
      */
     int FAILURE_CODE = 0x1FF9;
+
+    /**
+     * Failure code used when a message consumer explicitly fails an asynchronous processing.
+     *
+     * This status is used when the method annotated with {@link ConsumeEvent} returns a failed
+     * {@link java.util.concurrent.CompletionStage} or {@link io.smallrye.mutiny.Uni}.
+     */
+    int EXPLICIT_FAILURE_CODE = 0x1FFF;
 
     /**
      * The address the consumer will be registered to. By default, the fully qualified name of the declaring bean class is
@@ -79,6 +88,7 @@ public @interface ConsumeEvent {
      * @return {@code null} if it should use a default MessageCodec
      * @see io.quarkus.vertx.LocalEventBusCodec
      */
+    @SuppressWarnings("rawtypes")
     Class<? extends MessageCodec> codec() default LocalEventBusCodec.class;
 
 }

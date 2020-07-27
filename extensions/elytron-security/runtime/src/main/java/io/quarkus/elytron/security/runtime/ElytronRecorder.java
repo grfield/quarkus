@@ -1,7 +1,6 @@
 package io.quarkus.elytron.security.runtime;
 
 import java.security.Permission;
-import java.security.Security;
 
 import javax.enterprise.inject.spi.CDI;
 
@@ -13,7 +12,6 @@ import org.wildfly.security.authz.PermissionMappable;
 import org.wildfly.security.authz.PermissionMapper;
 import org.wildfly.security.authz.RoleDecoder;
 import org.wildfly.security.authz.Roles;
-import org.wildfly.security.password.WildFlyElytronPasswordProvider;
 import org.wildfly.security.permission.PermissionVerifier;
 
 import io.quarkus.arc.runtime.BeanContainer;
@@ -93,7 +91,6 @@ public class ElytronRecorder {
      * @return the security domain runtime value
      */
     public RuntimeValue<SecurityDomain> buildDomain(RuntimeValue<SecurityDomain.Builder> builder) {
-        Security.addProvider(new WildFlyElytronPasswordProvider());
         return new RuntimeValue<>(builder.getValue().build());
     }
 }

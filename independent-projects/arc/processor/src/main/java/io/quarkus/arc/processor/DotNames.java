@@ -1,12 +1,15 @@
 package io.quarkus.arc.processor;
 
 import io.quarkus.arc.AlternativePriority;
-import io.quarkus.arc.ComputingCache;
 import io.quarkus.arc.DefaultBean;
+import io.quarkus.arc.InjectableInstance;
+import io.quarkus.arc.impl.ComputingCache;
+import java.lang.annotation.Repeatable;
 import java.util.Optional;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.annotation.Priority;
+import javax.enterprise.context.Initialized;
 import javax.enterprise.context.control.ActivateRequestContext;
 import javax.enterprise.event.Event;
 import javax.enterprise.event.Observes;
@@ -20,6 +23,7 @@ import javax.enterprise.inject.Instance;
 import javax.enterprise.inject.Intercepted;
 import javax.enterprise.inject.Produces;
 import javax.enterprise.inject.Stereotype;
+import javax.enterprise.inject.TransientReference;
 import javax.enterprise.inject.Typed;
 import javax.enterprise.inject.Vetoed;
 import javax.enterprise.inject.spi.Bean;
@@ -32,6 +36,7 @@ import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Provider;
 import javax.inject.Qualifier;
+import javax.inject.Singleton;
 import javax.interceptor.AroundConstruct;
 import javax.interceptor.AroundInvoke;
 import javax.interceptor.Interceptor;
@@ -49,11 +54,13 @@ public final class DotNames {
     public static final DotName PRODUCES = create(Produces.class);
     public static final DotName DISPOSES = create(Disposes.class);
     public static final DotName QUALIFIER = create(Qualifier.class);
+    public static final DotName REPEATABLE = create(Repeatable.class);
     public static final DotName NONBINDING = create(Nonbinding.class);
     public static final DotName INJECT = create(Inject.class);
     public static final DotName POST_CONSTRUCT = create(PostConstruct.class);
     public static final DotName PRE_DESTROY = create(PreDestroy.class);
     public static final DotName INSTANCE = create(Instance.class);
+    public static final DotName INJECTABLE_INSTANCE = create(InjectableInstance.class);
     public static final DotName PROVIDER = create(Provider.class);
     public static final DotName INJECTION_POINT = create(InjectionPoint.class);
     public static final DotName INTERCEPTOR = create(Interceptor.class);
@@ -71,6 +78,7 @@ public final class DotNames {
     public static final DotName ALTERNATIVE = create(Alternative.class);
     public static final DotName ALTERNATIVE_PRIORITY = create(AlternativePriority.class);
     public static final DotName DEFAULT_BEAN = create(DefaultBean.class);
+    public static final DotName SINGLETON = create(Singleton.class);
     public static final DotName STEREOTYPE = create(Stereotype.class);
     public static final DotName TYPED = create(Typed.class);
     public static final DotName VETOED = create(Vetoed.class);
@@ -81,6 +89,8 @@ public final class DotNames {
     public static final DotName NAMED = create(Named.class);
     public static final DotName ACTIVATE_REQUEST_CONTEXT = create(ActivateRequestContext.class);
     public static final DotName TRANSACTION_PHASE = create(TransactionPhase.class);
+    public static final DotName INITIALIZED = create(Initialized.class);
+    public static final DotName TRANSIENT_REFERENCE = create(TransientReference.class);
 
     public static final DotName BOOLEAN = create(Boolean.class);
     public static final DotName BYTE = create(Byte.class);
@@ -92,13 +102,31 @@ public final class DotNames {
     public static final DotName SHORT = create(Short.class);
     public static final DotName STRING = create(String.class);
 
+    public static final DotName DEPRECATED = create(Deprecated.class);
+
     private DotNames() {
     }
 
+    /**
+     * Note that this method does not attempt to detect a nested class because the computing cache is shared with the
+     * {@link #create(String)} variant and so the results would be inconsistent. Therefore, this method should only be used for
+     * top-level classes.
+     * 
+     * @param clazz
+     * @return the computed dot name
+     */
     static DotName create(Class<?> clazz) {
         return create(clazz.getName());
     }
 
+    /**
+     * Note that the dollar sign is a valid character for class names so we cannot detect a nested class here. Therefore, this
+     * method returns a dot name for which {@link DotName#local()} returns {@code Foo$Bar} for the parameter
+     * "com.foo.Foo$Bar".
+     * 
+     * @param name
+     * @return the computed dot name
+     */
     static DotName create(String name) {
         int lastDot = name.lastIndexOf('.');
         if (lastDot < 0) {
@@ -137,9 +165,10 @@ public final class DotNames {
     }
 
     /**
-     * Note that "$" is a valid character for class names so we cannot detect a nested class here. Therefore, this method would
-     * return "Foo$Bar" for the
-     * parameter "com.foo.Foo$Bar". Use {@link #simpleName(ClassInfo)} when you need to distinguish the nested classes.
+     * Note that dollar sign is a valid character for class names so we cannot detect a nested class here. Therefore, this
+     * method returns "Foo$Bar" for the parameter "com.foo.Foo$Bar". Use {@link #simpleName(ClassInfo)} when you need to
+     * distinguish
+     * the nested classes.
      * 
      * @param name
      * @return the simple name

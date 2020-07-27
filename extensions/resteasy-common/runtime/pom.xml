@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>quarkus-resteasy-common-parent</artifactId>
         <groupId>io.quarkus</groupId>
@@ -12,10 +12,10 @@
 
     <artifactId>quarkus-resteasy-common</artifactId>
     <name>Quarkus - RESTEasy - Common - Runtime</name>
-
+    <description>Components common to the RESTEasy server and the REST Client</description>
     <dependencies>
         <dependency>
-            <groupId>com.oracle.substratevm</groupId>
+            <groupId>org.graalvm.nativeimage</groupId>
             <artifactId>svm</artifactId>
         </dependency>
         <dependency>
@@ -26,18 +26,6 @@
             <groupId>org.jboss.resteasy</groupId>
             <artifactId>resteasy-core</artifactId>
         </dependency>
-        <!--
-        <dependency>
-            <groupId>org.jboss.resteasy</groupId>
-            <artifactId>resteasy-context-propagation</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>io.smallrye</groupId>
-                    <artifactId>smallrye-context-propagation</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        -->
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-arc</artifactId>
@@ -46,6 +34,16 @@
             <groupId>com.sun.activation</groupId>
             <artifactId>jakarta.activation</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.json.bind</groupId>
+            <artifactId>jakarta.json.bind-api</artifactId>
+            <optional>true</optional>
+        </dependency>
     </dependencies>
 
     <build>
@@ -53,6 +51,15 @@
             <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-bootstrap-maven-plugin</artifactId>
+                <configuration>
+                    <excludedArtifacts>
+                        <excludedArtifact>javax.ws.rs:javax.ws.rs-api</excludedArtifact>
+                        <excludedArtifact>javax.activation:javax.activation-api</excludedArtifact>
+                        <excludedArtifact>javax.activation:activation</excludedArtifact>
+                        <excludedArtifact>jakarta.ws.rs:jakarta.ws.rs-api</excludedArtifact>
+                        <excludedArtifact>org.jboss.resteasy:resteasy-context-propagation</excludedArtifact>
+                    </excludedArtifacts>
+                </configuration>
             </plugin>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>

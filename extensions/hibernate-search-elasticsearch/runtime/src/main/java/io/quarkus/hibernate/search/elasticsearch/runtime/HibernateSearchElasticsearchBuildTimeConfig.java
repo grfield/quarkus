@@ -5,6 +5,8 @@ import java.util.Optional;
 
 import org.hibernate.search.backend.elasticsearch.ElasticsearchVersion;
 
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
+import io.quarkus.runtime.annotations.ConfigDocSection;
 import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
@@ -14,22 +16,47 @@ import io.quarkus.runtime.annotations.ConfigRoot;
 public class HibernateSearchElasticsearchBuildTimeConfig {
 
     /**
-     * Configuration of the default backend.
+     * Default backend
      */
-    public ElasticsearchBackendBuildTimeConfig elasticsearch;
+    @ConfigItem(name = "elasticsearch")
+    @ConfigDocSection
+    public ElasticsearchBackendBuildTimeConfig defaultBackend;
 
     /**
-     * If not using the default backend configuration, the name of the default backend that is part of the
-     * {@link #additionalBackends}.
+     * Additional backends
+     */
+    @ConfigItem(name = "elasticsearch")
+    @ConfigDocSection
+    public ElasticsearchAdditionalBackendsBuildTimeConfig additionalBackends;
+
+    /**
+     * The class or the name of the bean that should be notified of any failure occurring in a background process
+     * (mainly index operations).
+     * <p>
+     * Must implement {@link org.hibernate.search.engine.reporting.FailureHandler}.
      */
     @ConfigItem
-    public Optional<String> defaultBackend;
+    public Optional<Class<?>> backgroundFailureHandler;
 
-    /**
-     * Configuration of optional additional backends.
-     */
-    @ConfigItem(name = "elasticsearch.backends")
-    public Map<String, ElasticsearchBackendBuildTimeConfig> additionalBackends;
+    @ConfigGroup
+    public static class ElasticsearchAdditionalBackendsBuildTimeConfig {
+
+        /**
+         * Only useful when defining {@link #backends additional backends}:
+         * the name of the default backend,
+         * i.e. the backend that will be assigned to {@code @Indexed} entities
+         * that do not specify a backend explicitly through {@code @Indexed(backend = ...)}.
+         */
+        @ConfigItem
+        public Optional<String> defaultBackend;
+
+        /**
+         * Additional backends
+         */
+        @ConfigDocMapKey("backend-name")
+        public Map<String, ElasticsearchBackendBuildTimeConfig> backends;
+
+    }
 
     @ConfigGroup
     public static class ElasticsearchBackendBuildTimeConfig {
@@ -53,6 +80,12 @@ public class HibernateSearchElasticsearchBuildTimeConfig {
          */
         @ConfigItem
         public AnalysisConfig analysis;
+
+        /**
+         * Configuration for the index layout.
+         */
+        @ConfigItem
+        public LayoutConfig layout;
     }
 
     @ConfigGroup
@@ -62,5 +95,14 @@ public class HibernateSearchElasticsearchBuildTimeConfig {
          */
         @ConfigItem
         public Optional<Class<?>> configurer;
+    }
+
+    @ConfigGroup
+    public static class LayoutConfig {
+        /**
+         * The class or the name of the bean used to configure layout (e.g. index names, index aliases).
+         */
+        @ConfigItem
+        public Optional<Class<?>> strategy;
     }
 }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 [#if grandParentGroupId?? ]    <parent>
         <groupId>[=grandParentGroupId]</groupId>
@@ -11,15 +11,24 @@
     </parent>
 [/#if]
 
-[#if groupId?? && groupId != grandParentGroupId ]    <groupId>[=groupId]</groupId>
+[#if grandParentGroupId?? ][#if groupId != grandParentGroupId ]    <groupId>[=groupId]</groupId>[/#if][#else ]    <groupId>[=groupId]</groupId>
 [/#if]
     <artifactId>[=artifactId]-parent</artifactId>
-[#if groupId?? && groupId != grandParentGroupId && version?? && version != grandParentVersion ]    <version>[=version]</version>
+[#if groupId?? && (!grandParentGroupId?? || groupId != grandParentGroupId) && version?? && (!grandParentVersion?? || version != grandParentVersion) ]    <version>[=version]</version>
 [/#if]
 [#if nameBase?? ]    <name>[=namePrefix][=nameBase][=nameSegmentDelimiter]Parent</name>
 [/#if]
 
     <packaging>pom</packaging>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.parameters>true</maven.compiler.parameters>
+    </properties>
+
     <modules>
         <module>deployment</module>
         <module>runtime</module>

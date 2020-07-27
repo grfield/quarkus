@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>quarkus-jdbc-parent</artifactId>
         <groupId>io.quarkus</groupId>
@@ -13,8 +13,8 @@
     <name>Quarkus - JDBC - H2</name>
     <packaging>pom</packaging>
     <modules>
-        <module>jdbc-h2-deployment</module>
-        <module>jdbc-h2-runtime</module>
+        <module>deployment</module>
+        <module>runtime</module>
     </modules>
 
 

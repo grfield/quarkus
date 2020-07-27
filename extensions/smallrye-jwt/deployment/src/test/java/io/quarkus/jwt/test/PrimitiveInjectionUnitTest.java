@@ -23,8 +23,9 @@ import io.restassured.RestAssured;
  * Tests that claims can be injected as primitive types into @RequestScoped beans
  */
 public class PrimitiveInjectionUnitTest {
-    private static Class[] testClasses = {
-            PrimitiveInjectionEndpoint.class
+    private static Class<?>[] testClasses = {
+            PrimitiveInjectionEndpoint.class,
+            TokenUtils.class
     };
 
     /**
@@ -43,6 +44,9 @@ public class PrimitiveInjectionUnitTest {
     static final QuarkusUnitTest config = new QuarkusUnitTest()
             .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class)
                     .addClasses(testClasses)
+                    .addAsResource("publicKey.pem")
+                    .addAsResource("privateKey.pem")
+                    .addAsResource("Token1.json")
                     .addAsResource("application.properties"));
 
     @BeforeEach
@@ -56,11 +60,9 @@ public class PrimitiveInjectionUnitTest {
 
     /**
      * Verify that the token issuer claim is as expected
-     *
-     * @throws Exception
      */
     @Test()
-    public void verifyIssuerClaim() throws Exception {
+    public void verifyIssuerClaim() {
         io.restassured.response.Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()
@@ -77,11 +79,9 @@ public class PrimitiveInjectionUnitTest {
 
     /**
      * Verify that the injected raw token claim is as expected
-     *
-     * @throws Exception
      */
     @Test()
-    public void verifyInjectedRawToken() throws Exception {
+    public void verifyInjectedRawToken() {
         io.restassured.response.Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()
@@ -98,11 +98,9 @@ public class PrimitiveInjectionUnitTest {
 
     /**
      * Verify that the token jti claim is as expected
-     *
-     * @throws Exception
      */
     @Test()
-    public void verifyInjectedJTI() throws Exception {
+    public void verifyInjectedJTI() {
         io.restassured.response.Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()
@@ -119,11 +117,9 @@ public class PrimitiveInjectionUnitTest {
 
     /**
      * Verify that the token upn claim is as expected
-     *
-     * @throws Exception
      */
     @Test()
-    public void verifyInjectedUPN() throws Exception {
+    public void verifyInjectedUPN() {
         io.restassured.response.Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()
@@ -140,15 +136,13 @@ public class PrimitiveInjectionUnitTest {
 
     /**
      * Verify that the token aud claim is as expected
-     *
-     * @throws Exception
      */
     @Test()
-    public void verifyInjectedAudience() throws Exception {
+    public void verifyInjectedAudience() {
         io.restassured.response.Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()
-                .queryParam(Claims.aud.name(), new String[] { "s6BhdRkqt3" })
+                .queryParam(Claims.aud.name(), "s6BhdRkqt3")
                 .queryParam(Claims.auth_time.name(), authTimeClaim)
                 .get("/endp/verifyInjectedAudience").andReturn();
 
@@ -162,15 +156,13 @@ public class PrimitiveInjectionUnitTest {
     /**
      * Verify that the token aud claim is as expected
      *
-     * @throws Exception
      */
     @Test()
-    public void verifyInjectedGroups() throws Exception {
+    public void verifyInjectedGroups() {
         io.restassured.response.Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()
-                .queryParam(Claims.groups.name(), new String[] {
-                        "Echoer", "Tester", "group1", "group2" })
+                .queryParam(Claims.groups.name(), "Echoer", "Tester", "group1", "group2")
                 .queryParam(Claims.auth_time.name(), authTimeClaim)
                 .get("/endp/verifyInjectedGroups").andReturn();
 
@@ -184,10 +176,9 @@ public class PrimitiveInjectionUnitTest {
     /**
      * Verify that the token iat claim is as expected
      *
-     * @throws Exception
      */
     @Test()
-    public void verifyInjectedIssuedAt() throws Exception {
+    public void verifyInjectedIssuedAt() {
         io.restassured.response.Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()
@@ -205,10 +196,9 @@ public class PrimitiveInjectionUnitTest {
     /**
      * Verify that the token exp claim is as expected
      *
-     * @throws Exception
      */
     @Test()
-    public void verifyInjectedExpiration() throws Exception {
+    public void verifyInjectedExpiration() {
         io.restassured.response.Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()
@@ -226,10 +216,9 @@ public class PrimitiveInjectionUnitTest {
     /**
      * Verify that the token customString claim is as expected
      *
-     * @throws Exception
      */
     @Test()
-    public void verifyInjectedCustomString() throws Exception {
+    public void verifyInjectedCustomString() {
         io.restassured.response.Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()
@@ -247,10 +236,9 @@ public class PrimitiveInjectionUnitTest {
     /**
      * Verify that the token customString claim is as expected
      *
-     * @throws Exception
      */
     @Test()
-    public void verifyInjectedCustomDouble() throws Exception {
+    public void verifyInjectedCustomDouble() {
         io.restassured.response.Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()

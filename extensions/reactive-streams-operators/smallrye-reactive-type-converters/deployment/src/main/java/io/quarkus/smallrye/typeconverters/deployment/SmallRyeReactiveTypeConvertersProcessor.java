@@ -5,11 +5,12 @@ import java.util.Collection;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 
+import io.quarkus.deployment.Feature;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
-import io.quarkus.deployment.builditem.substrate.ServiceProviderBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ServiceProviderBuildItem;
 import io.smallrye.reactive.converters.ReactiveTypeConverter;
 
 /**
@@ -25,7 +26,7 @@ public class SmallRyeReactiveTypeConvertersProcessor {
     @BuildStep
     public void build(BuildProducer<ServiceProviderBuildItem> serviceProvider, BuildProducer<FeatureBuildItem> feature,
             CombinedIndexBuildItem indexBuildItem) {
-        feature.produce(new FeatureBuildItem(FeatureBuildItem.SMALLRYE_REACTIVE_TYPE_CONVERTERS));
+        feature.produce(new FeatureBuildItem(Feature.SMALLRYE_REACTIVE_TYPE_CONVERTERS));
         Collection<ClassInfo> implementors = indexBuildItem.getIndex().getAllKnownImplementors(REACTIVE_TYPE_CONVERTER);
 
         implementors.forEach(info -> serviceProvider

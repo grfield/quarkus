@@ -5,11 +5,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import io.quarkus.runtime.annotations.ConfigDocSection;
+import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
-import io.quarkus.runtime.annotations.ConfigPhase;
-import io.quarkus.runtime.annotations.ConfigRoot;
 
-@ConfigRoot(name = "mongodb", phase = ConfigPhase.RUN_TIME)
+@ConfigGroup
 public class MongoClientConfig {
 
     /**
@@ -62,10 +62,10 @@ public class MongoClientConfig {
     public Optional<String> connectionString;
 
     /**
-     * Configures the Mongo server addressed (one if single mode).
-     * The addressed are passed as {@code host:port}.
+     * Configures the MongoDB server addressed (one if single mode).
+     * The addresses are passed as {@code host:port}.
      */
-    @ConfigItem
+    @ConfigItem(defaultValue = "127.0.0.1:27017")
     public List<String> hosts;
 
     /**
@@ -137,21 +137,21 @@ public class MongoClientConfig {
     public Optional<Duration> connectTimeout;
 
     /**
-     * How long a send or receive on a socket can take before timing out.
+     * How long a socket read can take before timing out.
      */
     @ConfigItem
-    public Optional<Duration> socketTimeout;
+    public Optional<Duration> readTimeout;
 
     /**
      * If connecting with TLS, this option enables insecure TLS connections.
      */
-    @ConfigItem(defaultValue = "false")
+    @ConfigItem
     public boolean tlsInsecure;
 
     /**
      * Whether to connect using TLS.
      */
-    @ConfigItem(defaultValue = "false")
+    @ConfigItem
     public boolean tls;
 
     /**
@@ -180,8 +180,9 @@ public class MongoClientConfig {
     public Optional<Duration> heartbeatFrequency;
 
     /**
-     * Configures the write concern.
+     * Write concern
      */
+    @ConfigDocSection
     public WriteConcernConfig writeConcern;
 
     /**
@@ -192,15 +193,8 @@ public class MongoClientConfig {
     public Optional<String> readPreference;
 
     /**
-     * Configures the credentials and the authentication mechanism.
+     * Credentials and authentication mechanism
      */
+    @ConfigDocSection
     public CredentialConfig credentials;
-
-    /**
-     * Configures the maximum number of concurrent operations allowed to wait for a server to become available.
-     * All further operations will get an exception immediately.
-     */
-    @ConfigItem
-    public OptionalInt maxWaitQueueSize;
-
 }

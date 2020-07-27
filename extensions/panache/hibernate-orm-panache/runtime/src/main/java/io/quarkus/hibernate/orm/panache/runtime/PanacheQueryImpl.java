@@ -1,141 +1,176 @@
 package io.quarkus.hibernate.orm.panache.runtime;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import javax.persistence.EntityManager;
-import javax.persistence.Query;
+import javax.persistence.LockModeType;
 
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import io.quarkus.hibernate.orm.panache.common.runtime.CommonPanacheQueryImpl;
 import io.quarkus.panache.common.Page;
+import io.quarkus.panache.common.Parameters;
 
 public class PanacheQueryImpl<Entity> implements PanacheQuery<Entity> {
 
-    private Query jpaQuery;
-    private Object paramsArrayOrMap;
-    private String query;
-    private EntityManager em;
+    private CommonPanacheQueryImpl<Entity> delegate;
 
-    /*
-     * We store the pageSize and apply it for each request because getFirstResult()
-     * sets the page size to 1
-     */
-    private Page page;
-    private Long count;
+    PanacheQueryImpl(EntityManager em, String query, String orderBy, Object paramsArrayOrMap) {
+        this.delegate = new CommonPanacheQueryImpl<Entity>(em, query, orderBy, paramsArrayOrMap);
+    }
 
-    PanacheQueryImpl(EntityManager em, javax.persistence.Query jpaQuery, String query, Object paramsArrayOrMap) {
-        this.em = em;
-        this.jpaQuery = jpaQuery;
-        this.query = query;
-        this.paramsArrayOrMap = paramsArrayOrMap;
-        page = new Page(0, Integer.MAX_VALUE);
+    protected PanacheQueryImpl(CommonPanacheQueryImpl<Entity> delegate) {
+        this.delegate = delegate;
     }
 
     // Builder
 
     @Override
+    public <T> PanacheQuery<T> project(Class<T> type) {
+        return new PanacheQueryImpl<>(delegate.project(type));
+    }
+
+    @Override
     @SuppressWarnings("unchecked")
     public <T extends Entity> PanacheQuery<T> page(Page page) {
-        this.page = page;
-        jpaQuery.setFirstResult(page.index * page.size);
+        delegate.page(page);
+        return (PanacheQuery<T>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> page(int pageIndex, int pageSize) {
+        delegate.page(pageIndex, pageSize);
+        return (PanacheQuery<T>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> nextPage() {
+        delegate.nextPage();
+        return (PanacheQuery<T>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> previousPage() {
+        delegate.previousPage();
+        return (PanacheQuery<T>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> firstPage() {
+        delegate.firstPage();
+        return (PanacheQuery<T>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> lastPage() {
+        delegate.lastPage();
         return (PanacheQuery<T>) this;
     }
 
     @Override
-    public <T extends Entity> PanacheQuery<T> page(int pageIndex, int pageSize) {
-        return page(Page.of(pageIndex, pageSize));
-    }
-
-    @Override
-    public <T extends Entity> PanacheQuery<T> nextPage() {
-        return page(page.next());
-    }
-
-    @Override
-    public <T extends Entity> PanacheQuery<T> previousPage() {
-        return page(page.previous());
-    }
-
-    @Override
-    public <T extends Entity> PanacheQuery<T> firstPage() {
-        return page(page.first());
-    }
-
-    @Override
-    public <T extends Entity> PanacheQuery<T> lastPage() {
-        return page(page.index(pageCount() - 1));
-    }
-
-    @Override
     public boolean hasNextPage() {
-        return page.index < (pageCount() - 1);
+        return delegate.hasNextPage();
     }
 
     @Override
     public boolean hasPreviousPage() {
-        return page.index > 0;
+        return delegate.hasPreviousPage();
     }
 
     @Override
     public int pageCount() {
-        long count = count();
-        if (count == 0)
-            return 1; // a single page of zero results
-        return (int) Math.ceil((double) count / (double) page.size);
+        return delegate.pageCount();
     }
 
     @Override
     public Page page() {
-        return page;
+        return delegate.page();
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> range(int startIndex, int lastIndex) {
+        delegate.range(startIndex, lastIndex);
+        return (PanacheQuery<T>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> withLock(LockModeType lockModeType) {
+        delegate.withLock(lockModeType);
+        return (PanacheQuery<T>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> withHint(String hintName, Object value) {
+        delegate.withHint(hintName, value);
+        return (PanacheQuery<T>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> filter(String filterName, Parameters parameters) {
+        delegate.filter(filterName, parameters.map());
+        return (PanacheQuery<T>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> filter(String filterName, Map<String, Object> parameters) {
+        delegate.filter(filterName, parameters);
+        return (PanacheQuery<T>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T extends Entity> PanacheQuery<T> filter(String filterName) {
+        delegate.filter(filterName, Collections.emptyMap());
+        return (PanacheQuery<T>) this;
     }
 
     // Results
 
     @Override
-    @SuppressWarnings("unchecked")
     public long count() {
-        if (count == null) {
-            // FIXME: this is crude but good enough for a first version
-            String lcQuery = query.toLowerCase();
-            int orderByIndex = lcQuery.lastIndexOf(" order by ");
-            if (orderByIndex != -1)
-                query = query.substring(0, orderByIndex);
-            Query countQuery = em.createQuery("SELECT COUNT(*) " + query);
-            if (paramsArrayOrMap instanceof Map)
-                JpaOperations.bindParameters(countQuery, (Map<String, Object>) paramsArrayOrMap);
-            else
-                JpaOperations.bindParameters(countQuery, (Object[]) paramsArrayOrMap);
-            count = (Long) countQuery.getSingleResult();
-        }
-        return count;
+        return delegate.count();
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public <T extends Entity> List<T> list() {
-        jpaQuery.setMaxResults(page.size);
-        return jpaQuery.getResultList();
+        return delegate.list();
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public <T extends Entity> Stream<T> stream() {
-        jpaQuery.setMaxResults(page.size);
-        return jpaQuery.getResultStream();
+        return delegate.stream();
     }
 
     @Override
     public <T extends Entity> T firstResult() {
-        List<T> list = list();
-        jpaQuery.setMaxResults(1);
-        return list.isEmpty() ? null : list.get(0);
+        return delegate.firstResult();
     }
 
     @Override
-    @SuppressWarnings("unchecked")
+    public <T extends Entity> Optional<T> firstResultOptional() {
+        return delegate.firstResultOptional();
+    }
+
+    @Override
     public <T extends Entity> T singleResult() {
-        jpaQuery.setMaxResults(page.size);
-        return (T) jpaQuery.getSingleResult();
+        return delegate.singleResult();
+    }
+
+    @Override
+    public <T extends Entity> Optional<T> singleResultOptional() {
+        return delegate.singleResultOptional();
     }
 }

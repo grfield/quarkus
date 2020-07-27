@@ -3,12 +3,14 @@ package io.quarkus.test.common;
 import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+
+import io.quarkus.runtime.util.ClassPathUtils;
 
 /**
  * Maps between builder test and application class directories.
@@ -20,6 +22,10 @@ public final class PathTestHelper {
         TEST_TO_MAIN_DIR_FRAGMENTS.put(
                 "bin" + File.separator + "test",
                 "bin" + File.separator + "main");
+        // idea
+        TEST_TO_MAIN_DIR_FRAGMENTS.put(
+                "out" + File.separator + "test",
+                "out" + File.separator + "production");
         // gradle
         TEST_TO_MAIN_DIR_FRAGMENTS.put(
                 "classes" + File.separator + "java" + File.separator + "native-test",
@@ -57,7 +63,7 @@ public final class PathTestHelper {
      */
     public static Path getTestClassesLocation(Class<?> testClass) {
         String classFileName = testClass.getName().replace('.', File.separatorChar) + ".class";
-        URL resource = testClass.getClassLoader().getResource(classFileName);
+        URL resource = testClass.getClassLoader().getResource(testClass.getName().replace('.', '/') + ".class");
 
         if (resource.getProtocol().equals("jar")) {
             try {
@@ -85,32 +91,86 @@ public final class PathTestHelper {
      * @return directory or JAR containing the application being tested by the test class
      */
     public static Path getAppClassLocation(Class<?> testClass) {
-        final String testClassPath = getTestClassesLocation(testClass).toString();
-        if (testClassPath.endsWith(".jar")) {
-            if (testClassPath.endsWith("-tests.jar")) {
-                return Paths.get(new StringBuilder()
-                        .append(testClassPath, 0, testClassPath.length() - "-tests.jar".length())
-                        .append(".jar")
-                        .toString());
-            } else if (testClassPath.contains("-rpkgtests")) {
-                // This is a third party test-jar transformed using rpkgtests-maven-plugin
-                return Paths.get(testClassPath.replace("-rpkgtests", ""));
-            }
-            return Paths.get(testClassPath);
-        }
-        return TEST_TO_MAIN_DIR_FRAGMENTS.entrySet().stream()
-                .filter(e -> testClassPath.contains(e.getKey()))
-                .map(e -> Paths.get(testClassPath.replace(e.getKey(), e.getValue())))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("Unable to translate path for " + testClass.getName()));
+        return getAppClassLocationForTestLocation(getTestClassesLocation(testClass).toString());
     }
 
-    public static boolean isTestClass(String className, ClassLoader classLoader) {
+    /**
+     * Resolves the directory or the JAR file containing the application being tested by a test from the given location.
+     *
+     * @param testClassLocation the test class location
+     * @return directory or JAR containing the application being tested by a test from the given location
+     */
+    public static Path getAppClassLocationForTestLocation(String testClassLocation) {
+        if (testClassLocation.endsWith(".jar")) {
+            if (testClassLocation.endsWith("-tests.jar")) {
+                return Paths.get(new StringBuilder()
+                        .append(testClassLocation, 0, testClassLocation.length() - "-tests.jar".length())
+                        .append(".jar")
+                        .toString());
+            } else if (testClassLocation.contains("-rpkgtests")) {
+                // This is a third party test-jar transformed using rpkgtests-maven-plugin
+                return Paths.get(testClassLocation.replace("-rpkgtests", ""));
+            }
+            return Paths.get(testClassLocation);
+        }
+        return TEST_TO_MAIN_DIR_FRAGMENTS.entrySet().stream()
+                .filter(e -> testClassLocation.contains(e.getKey()))
+                .map(e -> Paths.get(testClassLocation.replace(e.getKey(), e.getValue())))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Unable to translate path for " + testClassLocation));
+    }
+
+    /**
+     * Returns the resources directory that compliments the classes directory.
+     * This is relevant in for Gradle where classes and resources have different output locations.
+     * The method will return null if classesDir is not a directory.
+     *
+     * @param classesDir classes directory
+     * @param name 'test' for test resources or 'main' for the main resources
+     * @return resources directory if found or null otherwise
+     */
+    public static Path getResourcesForClassesDirOrNull(Path classesDir, String name) {
+        if (!Files.isDirectory(classesDir)) {
+            return null;
+        }
+        Path p = classesDir.getParent();
+        if (p == null) {
+            return null;
+        }
+        p = p.getParent();
+        if (p == null) {
+            return null;
+        }
+        p = p.getParent();
+        if (p == null) {
+            return null;
+        }
+        p = p.resolve("resources").resolve(name);
+        if (Files.exists(p)) {
+            return p;
+        }
+        return null;
+    }
+
+    public static boolean isTestClass(String className, ClassLoader classLoader, Path testLocation) {
         String classFileName = className.replace('.', File.separatorChar) + ".class";
         URL resource = classLoader.getResource(classFileName);
-        return resource != null
-                && resource.getProtocol().startsWith("file")
-                && isInTestDir(resource);
+        if (resource == null) {
+            return false;
+        }
+        if (Files.isDirectory(testLocation)) {
+            return resource.getProtocol().startsWith("file") && isInTestDir(resource);
+        }
+        if (!resource.getProtocol().equals("jar")) {
+            return false;
+        }
+        String path = resource.getPath();
+        if (!path.startsWith("file:")) {
+            return false;
+        }
+        path = path.substring(5, path.lastIndexOf('!'));
+
+        return testLocation.equals(Paths.get(path));
     }
 
     private static boolean isInTestDir(URL resource) {
@@ -120,10 +180,6 @@ public final class PathTestHelper {
     }
 
     private static Path toPath(URL resource) {
-        try {
-            return Paths.get(resource.toURI());
-        } catch (URISyntaxException e) {
-            throw new IllegalStateException("Failed to convert URL " + resource, e);
-        }
+        return ClassPathUtils.toLocalPath(resource);
     }
 }

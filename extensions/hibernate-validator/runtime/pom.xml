@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>quarkus-hibernate-validator-parent</artifactId>
         <groupId>io.quarkus</groupId>
@@ -12,7 +12,7 @@
 
     <artifactId>quarkus-hibernate-validator</artifactId>
     <name>Quarkus - Hibernate Validator - Runtime</name>
-
+    <description>Validate object properties (field, getter) and method parameters for your beans (REST, CDI, JPA)</description>
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -25,6 +25,11 @@
         <dependency>
             <groupId>org.hibernate.validator</groupId>
             <artifactId>hibernate-validator</artifactId>
+        </dependency>
+        <!-- EL implementation -->
+        <dependency>
+           <groupId>org.glassfish</groupId>
+           <artifactId>jakarta.el</artifactId>
         </dependency>
         <dependency>
             <groupId>org.jboss.resteasy</groupId>
@@ -58,7 +63,7 @@
             </exclusions>
         </dependency>
         <dependency>
-            <groupId>com.oracle.substratevm</groupId>
+            <groupId>org.graalvm.nativeimage</groupId>
             <artifactId>svm</artifactId>
         </dependency>
     </dependencies>
@@ -68,6 +73,11 @@
             <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-bootstrap-maven-plugin</artifactId>
+                <configuration>
+                    <excludedArtifacts>
+                        <excludedArtifact>javax.validation:validation-api</excludedArtifact>
+                    </excludedArtifacts>
+                </configuration>
             </plugin>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>

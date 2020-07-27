@@ -39,7 +39,7 @@ public class HibernateSearchTestResource {
         SearchSession searchSession = Search.session(entityManager);
 
         List<Person> person = searchSession.search(Person.class)
-                .predicate(f -> f.match().field("name").matching("john"))
+                .where(f -> f.match().field("name").matching("john"))
                 .sort(f -> f.field("name_sort"))
                 .fetchHits(20);
 
@@ -48,13 +48,50 @@ public class HibernateSearchTestResource {
         assertEquals("John Irving", person.get(1).getName());
 
         person = searchSession.search(Person.class)
-                .predicate(f -> f.nested().objectField("address").nest(
+                .where(f -> f.nested().objectField("address").nest(
                         f.match().field("address.city").matching("london")))
                 .sort(f -> f.field("name_sort"))
                 .fetchHits(20);
 
         assertEquals(1, person.size());
         assertEquals("David Lodge", person.get(0).getName());
+
+        return "OK";
+    }
+
+    @PUT
+    @Path("/purge")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String testPurge() {
+        SearchSession searchSession = Search.session(entityManager);
+
+        searchSession.workspace().purge();
+
+        return "OK";
+    }
+
+    @PUT
+    @Path("/refresh")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String testRefresh() {
+        SearchSession searchSession = Search.session(entityManager);
+
+        searchSession.workspace().refresh();
+
+        return "OK";
+    }
+
+    @GET
+    @Path("/search-empty")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String testSearchEmpty() {
+        SearchSession searchSession = Search.session(entityManager);
+
+        List<Person> person = searchSession.search(Person.class)
+                .where(f -> f.matchAll())
+                .fetchHits(20);
+
+        assertEquals(0, person.size());
 
         return "OK";
     }

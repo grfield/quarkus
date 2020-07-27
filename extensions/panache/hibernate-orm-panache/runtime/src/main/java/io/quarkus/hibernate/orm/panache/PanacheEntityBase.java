@@ -2,10 +2,15 @@ package io.quarkus.hibernate.orm.panache;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import javax.json.bind.annotation.JsonbTransient;
+import javax.persistence.EntityManager;
+import javax.persistence.LockModeType;
 import javax.persistence.Transient;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import io.quarkus.hibernate.orm.panache.runtime.JpaOperations;
 import io.quarkus.panache.common.Parameters;
@@ -26,6 +31,18 @@ import io.quarkus.panache.common.impl.GenerateBridge;
 public abstract class PanacheEntityBase {
 
     // Operations
+
+    /**
+     * Returns the default {@link EntityManager} for extra operations (eg. CriteriaQueries)
+     *
+     * @return the default {@link EntityManager}
+     */
+    @JsonbTransient
+    // @JsonIgnore is here to avoid serialization of this property with jackson
+    @JsonIgnore
+    public EntityManager getEntityManager() {
+        return JpaOperations.getEntityManager();
+    }
 
     /**
      * Persist this entity in the database, if not already persisted. This will set your ID field if it is not already set.
@@ -74,6 +91,8 @@ public abstract class PanacheEntityBase {
      * @return true if this entity is persistent in the database.
      */
     @JsonbTransient
+    // @JsonIgnore is here to avoid serialization of this property with jackson
+    @JsonIgnore
     public boolean isPersistent() {
         return JpaOperations.isPersistent(this);
     }
@@ -95,6 +114,41 @@ public abstract class PanacheEntityBase {
      */
     @GenerateBridge(targetReturnTypeErased = true)
     public static <T extends PanacheEntityBase> T findById(Object id) {
+        throw JpaOperations.implementationInjectionMissing();
+    }
+
+    /**
+     * Find an entity of this type by ID and lock it.
+     *
+     * @param id the ID of the entity to find.
+     * @param lockModeType the locking strategy to be used when retrieving the entity.
+     * @return the entity found, or <code>null</code> if not found.
+     */
+    @GenerateBridge(targetReturnTypeErased = true)
+    public static <T extends PanacheEntityBase> T findById(Object id, LockModeType lockModeType) {
+        throw JpaOperations.implementationInjectionMissing();
+    }
+
+    /**
+     * Find an entity of this type by ID.
+     *
+     * @param id the ID of the entity to find.
+     * @return if found, an optional containing the entity, else <code>Optional.empty()</code>.
+     */
+    @GenerateBridge
+    public static <T extends PanacheEntityBase> Optional<T> findByIdOptional(Object id) {
+        throw JpaOperations.implementationInjectionMissing();
+    }
+
+    /**
+     * Find an entity of this type by ID.
+     *
+     * @param id the ID of the entity to find.
+     * @param lockModeType the locking strategy to be used when retrieving the entity.
+     * @return if found, an optional containing the entity, else <code>Optional.empty()</code>.
+     */
+    @GenerateBridge
+    public static <T extends PanacheEntityBase> Optional<T> findByIdOptional(Object id, LockModeType lockModeType) {
         throw JpaOperations.implementationInjectionMissing();
     }
 
@@ -598,6 +652,17 @@ public abstract class PanacheEntityBase {
     }
 
     /**
+     * Delete an entity of this type by ID.
+     *
+     * @param id the ID of the entity to delete.
+     * @return false if the entity was not deleted (not found).
+     */
+    @GenerateBridge
+    public static boolean deleteById(Object id) {
+        throw JpaOperations.implementationInjectionMissing();
+    }
+
+    /**
      * Delete all entities of this type matching the given query, with optional indexed parameters.
      *
      * @param query a {@link io.quarkus.hibernate.orm.panache query string}
@@ -676,5 +741,48 @@ public abstract class PanacheEntityBase {
      */
     public static void persist(Object firstEntity, Object... entities) {
         JpaOperations.persist(firstEntity, entities);
+    }
+
+    /**
+     * Update all entities of this type matching the given query, with optional indexed parameters.
+     *
+     * @param query a {@link io.quarkus.hibernate.orm.panache query string}
+     * @param params optional sequence of indexed parameters
+     * @return the number of entities updated.
+     * @see #update(String, Map)
+     * @see #update(String, Parameters)
+     */
+    @GenerateBridge
+    public static int update(String query, Object... params) {
+        throw JpaOperations.implementationInjectionMissing();
+    }
+
+    /**
+     * Update all entities of this type matching the given query, with named parameters.
+     *
+     * @param query a {@link io.quarkus.hibernate.orm.panache query string}
+     * @param params {@link Map} of named parameters
+     * @return the number of entities updated.
+     * @see #update(String, Object...)
+     * @see #update(String, Parameters)
+     * 
+     */
+    @GenerateBridge
+    public static int update(String query, Map<String, Object> params) {
+        throw JpaOperations.implementationInjectionMissing();
+    }
+
+    /**
+     * Update all entities of this type matching the given query, with named parameters.
+     *
+     * @param query a {@link io.quarkus.hibernate.orm.panache query string}
+     * @param params {@link Parameters} of named parameters
+     * @return the number of entities updated.
+     * @see #update(String, Object...)
+     * @see #update(String, Map)
+     */
+    @GenerateBridge
+    public static int update(String query, Parameters params) {
+        throw JpaOperations.implementationInjectionMissing();
     }
 }

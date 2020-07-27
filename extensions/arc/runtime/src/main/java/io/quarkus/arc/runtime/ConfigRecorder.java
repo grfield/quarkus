@@ -7,7 +7,7 @@ import java.util.Set;
 import javax.enterprise.inject.spi.DeploymentException;
 
 import org.eclipse.microprofile.config.Config;
-import org.eclipse.microprofile.config.spi.ConfigProviderResolver;
+import org.eclipse.microprofile.config.ConfigProvider;
 
 import io.quarkus.runtime.annotations.Recorder;
 
@@ -18,10 +18,10 @@ import io.quarkus.runtime.annotations.Recorder;
 public class ConfigRecorder {
 
     public void validateConfigProperties(Map<String, Set<String>> properties) {
-        Config config = ConfigProviderResolver.instance().getConfig();
+        Config config = ConfigProvider.getConfig();
         ClassLoader cl = Thread.currentThread().getContextClassLoader();
         if (cl == null) {
-            ConfigRecorder.class.getClassLoader();
+            cl = ConfigRecorder.class.getClassLoader();
         }
         for (Entry<String, Set<String>> entry : properties.entrySet()) {
             Set<String> propertyTypes = entry.getValue();
@@ -37,7 +37,8 @@ public class ConfigRecorder {
                                 "No config value of type " + entry.getValue() + " exists for: " + entry.getKey());
                     }
                 } catch (IllegalArgumentException e) {
-                    throw new DeploymentException(e);
+                    throw new DeploymentException(
+                            "Failed to load config value of type " + entry.getValue() + " for: " + entry.getKey(), e);
                 }
             }
         }
@@ -63,11 +64,12 @@ public class ConfigRecorder {
                 return char.class;
             case "void":
                 return void.class;
-        }
-        try {
-            return Class.forName(className, true, cl);
-        } catch (ClassNotFoundException e) {
-            throw new IllegalStateException("Unable to load the config property type: " + className);
+            default:
+                try {
+                    return Class.forName(className, true, cl);
+                } catch (ClassNotFoundException e) {
+                    throw new IllegalStateException("Unable to load the config property type: " + className, e);
+                }
         }
     }
 

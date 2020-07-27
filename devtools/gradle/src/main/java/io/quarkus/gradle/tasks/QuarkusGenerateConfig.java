@@ -1,6 +1,7 @@
 package io.quarkus.gradle.tasks;
 
 import java.io.File;
+import java.util.Collections;
 
 import org.gradle.api.GradleException;
 import org.gradle.api.tasks.Input;
@@ -8,15 +9,12 @@ import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.options.Option;
 
+import io.quarkus.bootstrap.BootstrapException;
+import io.quarkus.bootstrap.app.CuratedApplication;
+import io.quarkus.bootstrap.app.QuarkusBootstrap;
 import io.quarkus.bootstrap.model.AppArtifact;
-import io.quarkus.bootstrap.model.AppModel;
 import io.quarkus.bootstrap.resolver.AppModelResolver;
-import io.quarkus.bootstrap.resolver.AppModelResolverException;
-import io.quarkus.creator.AppCreator;
-import io.quarkus.creator.AppCreatorException;
-import io.quarkus.creator.phase.curate.CurateOutcome;
-import io.quarkus.creator.phase.generateconfig.ConfigPhaseOutcome;
-import io.quarkus.creator.phase.generateconfig.GenerateConfigPhase;
+import io.quarkus.runner.bootstrap.GenerateConfigTask;
 
 public class QuarkusGenerateConfig extends QuarkusTask {
 
@@ -39,16 +37,11 @@ public class QuarkusGenerateConfig extends QuarkusTask {
 
     @TaskAction
     public void buildQuarkus() {
-        getLogger().lifecycle("building quarkus runner");
+        getLogger().lifecycle("generating example config");
 
         final AppArtifact appArtifact = extension().getAppArtifact();
-        final AppModel appModel;
-        final AppModelResolver modelResolver = extension().resolveAppModel();
-        try {
-            appModel = modelResolver.resolveModel(appArtifact);
-        } catch (AppModelResolverException e) {
-            throw new GradleException("Failed to resolve application model " + appArtifact + " dependencies", e);
-        }
+        appArtifact.setPaths(QuarkusGradleUtils.getOutputPaths(getProject()));
+        final AppModelResolver modelResolver = extension().getAppModelResolver();
         if (extension().resourcesDir().isEmpty()) {
             throw new GradleException("No resources directory, cannot create application.properties");
         }
@@ -58,23 +51,20 @@ public class QuarkusGenerateConfig extends QuarkusTask {
         if (name == null || name.isEmpty()) {
             name = "application.properties.example";
         }
-
-        try (AppCreator appCreator = AppCreator.builder()
-                // configure the build phases we want the app to go through
-                .addPhase(new GenerateConfigPhase()
-                        .setConfigFile(new File(target, name).toPath()))
-                .setWorkDir(getProject().getBuildDir().toPath())
-                .build()) {
-
-            // push resolved application state
-            appCreator.pushOutcome(CurateOutcome.builder()
-                    .setAppModelResolver(modelResolver)
-                    .setAppModel(appModel)
-                    .build());
-            appCreator.resolveOutcome(ConfigPhaseOutcome.class);
+        try (CuratedApplication bootstrap = QuarkusBootstrap.builder()
+                .setBaseClassLoader(getClass().getClassLoader())
+                .setAppModelResolver(modelResolver)
+                .setTargetDirectory(getProject().getBuildDir().toPath())
+                .setBaseName(extension().finalName())
+                .setAppArtifact(appArtifact)
+                .setLocalProjectDiscovery(false)
+                .setIsolateDeployment(true)
+                .build().bootstrap()) {
+            bootstrap.runInAugmentClassLoader(GenerateConfigTask.class.getName(),
+                    Collections.singletonMap(GenerateConfigTask.CONFIG_FILE, new File(target, name).toPath()));
             getLogger().lifecycle("Generated config file " + name);
-        } catch (AppCreatorException e) {
-            throw new GradleException("Failed to generate config file", e);
+        } catch (BootstrapException e) {
+            throw new RuntimeException(e);
         }
     }
 }

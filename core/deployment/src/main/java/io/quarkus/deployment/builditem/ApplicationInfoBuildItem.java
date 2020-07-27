@@ -1,24 +1,26 @@
 package io.quarkus.deployment.builditem;
 
+import java.util.Optional;
+
 import io.quarkus.builder.item.SimpleBuildItem;
 
 public final class ApplicationInfoBuildItem extends SimpleBuildItem {
 
-    private static final String UNSET_VALUE = "<<unset>>";
+    public static final String UNSET_VALUE = "<<unset>>";
 
     private final String name;
     private final String version;
 
-    public ApplicationInfoBuildItem(String name, String version) {
-        this.name = name;
-        this.version = version;
+    public ApplicationInfoBuildItem(Optional<String> name, Optional<String> version) {
+        this.name = name.orElse(UNSET_VALUE);
+        this.version = version.orElse(UNSET_VALUE);
     }
 
     public String getName() {
-        return name == null ? UNSET_VALUE : name;
+        return name;
     }
 
     public String getVersion() {
-        return version == null ? UNSET_VALUE : version;
+        return version;
     }
 }

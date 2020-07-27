@@ -5,9 +5,7 @@ plugins {
 }
 
 repositories {
-    maven {
-        url uri(System.getenv('MAVEN_LOCAL_REPO'))
-    }
+    mavenLocal()
     mavenCentral()
 }
 
@@ -30,6 +28,6 @@ test {
     dependsOn 'cleanTest'
     useJUnitPlatform()
 
-    // @SubstrateTest and JVM mode tests can't be mixed in the same run
+    // @NativeImageTest and JVM mode tests can't be mixed in the same run
     forkEvery 1
 }

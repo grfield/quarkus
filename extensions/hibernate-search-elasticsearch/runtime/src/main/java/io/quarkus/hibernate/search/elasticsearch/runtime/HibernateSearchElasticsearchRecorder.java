@@ -8,7 +8,6 @@ import static io.quarkus.hibernate.search.elasticsearch.runtime.HibernateSearchC
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.function.BiConsumer;
-import java.util.function.Function;
 
 import org.hibernate.boot.Metadata;
 import org.hibernate.boot.spi.BootstrapContext;
@@ -53,24 +52,27 @@ public class HibernateSearchElasticsearchRecorder {
 
         @Override
         public void contributeBootProperties(BiConsumer<String, Object> propertyCollector) {
-            // Use the radical only as a workaround for https://hibernate.atlassian.net/browse/HSEARCH-3734
-            addConfig(propertyCollector, HibernateOrmMapperSpiSettings.Radicals.REFLECTION_STRATEGY,
+            addConfig(propertyCollector, HibernateOrmMapperSpiSettings.REFLECTION_STRATEGY,
                     HibernateOrmReflectionStrategyName.JAVA_LANG_REFLECT);
 
-            if (buildTimeConfig.defaultBackend.isPresent()) {
+            addConfig(propertyCollector,
+                    EngineSettings.BACKGROUND_FAILURE_HANDLER,
+                    buildTimeConfig.backgroundFailureHandler);
+
+            if (buildTimeConfig.additionalBackends.defaultBackend.isPresent()) {
                 // we have a named default backend
                 addConfig(propertyCollector, EngineSettings.DEFAULT_BACKEND,
-                        buildTimeConfig.defaultBackend.get());
-            } else if (buildTimeConfig.elasticsearch.version.isPresent()) {
+                        buildTimeConfig.additionalBackends.defaultBackend.get());
+            } else if (buildTimeConfig.defaultBackend.version.isPresent()) {
                 // we use the default backend configuration
                 addConfig(propertyCollector, EngineSettings.DEFAULT_BACKEND,
                         HibernateSearchElasticsearchRecorder.DEFAULT_BACKEND);
             }
 
             contributeBackendBuildTimeProperties(propertyCollector, HibernateSearchElasticsearchRecorder.DEFAULT_BACKEND,
-                    buildTimeConfig.elasticsearch);
+                    buildTimeConfig.defaultBackend);
 
-            for (Entry<String, ElasticsearchBackendBuildTimeConfig> backendEntry : buildTimeConfig.additionalBackends
+            for (Entry<String, ElasticsearchBackendBuildTimeConfig> backendEntry : buildTimeConfig.additionalBackends.backends
                     .entrySet()) {
                 contributeBackendBuildTimeProperties(propertyCollector, backendEntry.getKey(), backendEntry.getValue());
             }
@@ -86,6 +88,9 @@ public class HibernateSearchElasticsearchRecorder {
         @Override
         public void contributeRuntimeProperties(BiConsumer<String, Object> propertyCollector) {
             addConfig(propertyCollector,
+                    HibernateOrmMapperSettings.SCHEMA_MANAGEMENT_STRATEGY,
+                    runtimeConfig.schemaManagement.strategy);
+            addConfig(propertyCollector,
                     HibernateOrmMapperSettings.AUTOMATIC_INDEXING_SYNCHRONIZATION_STRATEGY,
                     runtimeConfig.automaticIndexing.synchronization.strategy);
             addConfig(propertyCollector,
@@ -100,7 +105,8 @@ public class HibernateSearchElasticsearchRecorder {
 
             contributeBackendRuntimeProperties(propertyCollector, DEFAULT_BACKEND, runtimeConfig.defaultBackend);
 
-            for (Entry<String, ElasticsearchBackendRuntimeConfig> backendEntry : runtimeConfig.additionalBackends.entrySet()) {
+            for (Entry<String, ElasticsearchBackendRuntimeConfig> backendEntry : runtimeConfig.additionalBackends.backends
+                    .entrySet()) {
                 contributeBackendRuntimeProperties(propertyCollector, backendEntry.getKey(), backendEntry.getValue());
             }
         }
@@ -115,56 +121,75 @@ public class HibernateSearchElasticsearchRecorder {
                     ElasticsearchBackendSettings.ANALYSIS_CONFIGURER,
                     elasticsearchBackendConfig.analysis.configurer,
                     Optional::isPresent, c -> c.get().getName());
+            addBackendConfig(propertyCollector, backendName,
+                    ElasticsearchBackendSettings.LAYOUT_STRATEGY,
+                    elasticsearchBackendConfig.layout.strategy,
+                    Optional::isPresent, c -> c.get().getName());
         }
 
         private void contributeBackendRuntimeProperties(BiConsumer<String, Object> propertyCollector, String backendName,
                 ElasticsearchBackendRuntimeConfig elasticsearchBackendConfig) {
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.HOSTS,
-                    elasticsearchBackendConfig.hosts,
-                    v -> (!v.isEmpty() && !(v.size() == 1 && v.get(0).isEmpty())), Function.identity());
+                    elasticsearchBackendConfig.hosts);
+            addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.PROTOCOL,
+                    elasticsearchBackendConfig.protocol.getHibernateSearchString());
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.USERNAME,
                     elasticsearchBackendConfig.username);
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.PASSWORD,
                     elasticsearchBackendConfig.password);
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.CONNECTION_TIMEOUT,
-                    elasticsearchBackendConfig.connectionTimeout,
-                    Optional::isPresent, d -> d.get().toMillis());
+                    elasticsearchBackendConfig.connectionTimeout.toMillis());
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.MAX_CONNECTIONS,
                     elasticsearchBackendConfig.maxConnections);
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.MAX_CONNECTIONS_PER_ROUTE,
                     elasticsearchBackendConfig.maxConnectionsPerRoute);
+            addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.THREAD_POOL_SIZE,
+                    elasticsearchBackendConfig.threadPool.size);
 
             addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.DISCOVERY_ENABLED,
                     elasticsearchBackendConfig.discovery.enabled);
-            addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.DISCOVERY_REFRESH_INTERVAL,
-                    elasticsearchBackendConfig.discovery.refreshInterval,
-                    Optional::isPresent, d -> d.get().getSeconds());
-            addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.DISCOVERY_SCHEME,
-                    elasticsearchBackendConfig.discovery.defaultScheme);
+            if (elasticsearchBackendConfig.discovery.enabled) {
+                addBackendConfig(propertyCollector, backendName, ElasticsearchBackendSettings.DISCOVERY_REFRESH_INTERVAL,
+                        elasticsearchBackendConfig.discovery.refreshInterval.getSeconds());
+            }
 
-            addBackendDefaultIndexConfig(propertyCollector, backendName, ElasticsearchIndexSettings.LIFECYCLE_STRATEGY,
-                    elasticsearchBackendConfig.indexDefaults.lifecycle.strategy);
             addBackendDefaultIndexConfig(propertyCollector, backendName,
-                    ElasticsearchIndexSettings.LIFECYCLE_MINIMAL_REQUIRED_STATUS,
-                    elasticsearchBackendConfig.indexDefaults.lifecycle.requiredStatus);
+                    ElasticsearchIndexSettings.SCHEMA_MANAGEMENT_MINIMAL_REQUIRED_STATUS,
+                    elasticsearchBackendConfig.indexDefaults.schemaManagement.requiredStatus);
             addBackendDefaultIndexConfig(propertyCollector, backendName,
-                    ElasticsearchIndexSettings.LIFECYCLE_MINIMAL_REQUIRED_STATUS_WAIT_TIMEOUT,
-                    elasticsearchBackendConfig.indexDefaults.lifecycle.requiredStatusWaitTimeout, Optional::isPresent,
+                    ElasticsearchIndexSettings.SCHEMA_MANAGEMENT_MINIMAL_REQUIRED_STATUS_WAIT_TIMEOUT,
+                    elasticsearchBackendConfig.indexDefaults.schemaManagement.requiredStatusWaitTimeout, Optional::isPresent,
                     d -> d.get().toMillis());
+            addBackendDefaultIndexConfig(propertyCollector, backendName,
+                    ElasticsearchIndexSettings.INDEXING_QUEUE_COUNT,
+                    elasticsearchBackendConfig.indexDefaults.indexing.queueCount);
+            addBackendDefaultIndexConfig(propertyCollector, backendName,
+                    ElasticsearchIndexSettings.INDEXING_QUEUE_SIZE,
+                    elasticsearchBackendConfig.indexDefaults.indexing.queueSize);
+            addBackendDefaultIndexConfig(propertyCollector, backendName,
+                    ElasticsearchIndexSettings.INDEXING_MAX_BULK_SIZE,
+                    elasticsearchBackendConfig.indexDefaults.indexing.maxBulkSize);
 
             for (Entry<String, ElasticsearchIndexConfig> indexConfigEntry : runtimeConfig.defaultBackend.indexes.entrySet()) {
                 String indexName = indexConfigEntry.getKey();
                 ElasticsearchIndexConfig indexConfig = indexConfigEntry.getValue();
 
-                addBackendIndexConfig(propertyCollector, backendName, indexName, ElasticsearchIndexSettings.LIFECYCLE_STRATEGY,
-                        indexConfig.lifecycle.strategy);
                 addBackendIndexConfig(propertyCollector, backendName, indexName,
-                        ElasticsearchIndexSettings.LIFECYCLE_MINIMAL_REQUIRED_STATUS,
-                        indexConfig.lifecycle.requiredStatus);
+                        ElasticsearchIndexSettings.SCHEMA_MANAGEMENT_MINIMAL_REQUIRED_STATUS,
+                        indexConfig.schemaManagement.requiredStatus);
                 addBackendIndexConfig(propertyCollector, backendName, indexName,
-                        ElasticsearchIndexSettings.LIFECYCLE_MINIMAL_REQUIRED_STATUS_WAIT_TIMEOUT,
-                        indexConfig.lifecycle.requiredStatusWaitTimeout, Optional::isPresent,
+                        ElasticsearchIndexSettings.SCHEMA_MANAGEMENT_MINIMAL_REQUIRED_STATUS_WAIT_TIMEOUT,
+                        indexConfig.schemaManagement.requiredStatusWaitTimeout, Optional::isPresent,
                         d -> d.get().toMillis());
+                addBackendIndexConfig(propertyCollector, backendName, indexName,
+                        ElasticsearchIndexSettings.INDEXING_QUEUE_COUNT,
+                        indexConfig.indexing.queueCount);
+                addBackendIndexConfig(propertyCollector, backendName, indexName,
+                        ElasticsearchIndexSettings.INDEXING_QUEUE_SIZE,
+                        indexConfig.indexing.queueSize);
+                addBackendIndexConfig(propertyCollector, backendName, indexName,
+                        ElasticsearchIndexSettings.INDEXING_MAX_BULK_SIZE,
+                        indexConfig.indexing.maxBulkSize);
             }
         }
     }

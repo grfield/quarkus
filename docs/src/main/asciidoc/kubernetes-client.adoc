@@ -14,7 +14,7 @@ in native mode while also making it easier to work with.
 Having a Kubernetes Client extension in Quarkus is very useful in order to unlock the power of Kubernetes Operators.
 Kubernetes Operators are quickly emerging as a new class of Cloud Native applications.
 These applications essentially watch the Kubernetes API and react to changes on various resources and can be used to manage the lifecycle of all kinds of complex systems like databases, messaging systems and much much more.
-Being able to write such operators in Java with a the very low footprint that native images provide is a great match.
+Being able to write such operators in Java with the very low footprint that native images provide is a great match.
 
 == Configuration
 
@@ -22,9 +22,11 @@ Once you have your Quarkus project configured you can add the `kubernetes-client
 to your project by running the following command in your project base directory.
 
 [source]
-mvn quarkus:add-extension -Dextensions="kubernetes-client"
+----
+./mvnw quarkus:add-extension -Dextensions="kubernetes-client"
+----
 
-This will add the following to your pom.xml:
+This will add the following to your `pom.xml`:
 
 [source,xml]
 ----
@@ -45,7 +47,7 @@ quarkus.kubernetes-client.trust-certs=false
 quarkus.kubernetes-client.namespace=default
 ----
 
-Note that the full list of properties is available in the https://github.com/quarkusio/quarkus/blob/master/extensions/kubernetes-client/runtime/src/main/java/io/quarkus/kubernetes/client/runtime/KubernetesClientBuildConfig.java[KubernetesClientBuildConfig] class.
+Note that the full list of properties is available in the https://github.com/quarkusio/quarkus/blob/master/extensions/kubernetes-client/runtime-internal/src/main/java/io/quarkus/kubernetes/client/runtime/KubernetesClientBuildConfig.java[KubernetesClientBuildConfig] class.
 
 === Overriding
 
@@ -77,7 +79,6 @@ Let's assume we have a REST endpoint defined like so:
 
 [source%nowrap,java]
 ----
-
 @Path("/pod")
 public class Pods {
 
@@ -262,3 +263,7 @@ subjects:
 
 Replace `<applicationName>` and `<namespace>` with your values.
 Have a look at https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/[Configure Service Accounts for Pods] to get further information.
+
+== Configuration Reference
+
+include::{generated-dir}/config/quarkus-kubernetes-client.adoc[opts=optional, leveloffset=+1]

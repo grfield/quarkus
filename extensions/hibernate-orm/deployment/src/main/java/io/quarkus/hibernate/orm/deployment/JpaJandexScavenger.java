@@ -15,8 +15,6 @@ import javax.persistence.Embedded;
 import javax.persistence.Entity;
 import javax.persistence.MappedSuperclass;
 
-import org.hibernate.jpa.boot.internal.ParsedPersistenceXmlDescriptor;
-import org.hibernate.jpa.boot.spi.PersistenceUnitDescriptor;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.ClassInfo;
@@ -26,7 +24,7 @@ import org.jboss.jandex.IndexView;
 import org.jboss.jandex.Type;
 
 import io.quarkus.deployment.annotations.BuildProducer;
-import io.quarkus.deployment.builditem.substrate.ReflectiveClassBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.configuration.ConfigurationError;
 
 /**
@@ -51,14 +49,14 @@ final class JpaJandexScavenger {
 
     private static final DotName ENUM = DotName.createSimple(Enum.class.getName());
 
-    private final List<ParsedPersistenceXmlDescriptor> explicitDescriptors;
+    private final List<PersistenceXmlDescriptorBuildItem> explicitDescriptors;
     private final BuildProducer<ReflectiveClassBuildItem> reflectiveClass;
     private final IndexView indexView;
     private final Set<String> nonJpaModelClasses;
     private final Set<String> ignorableNonIndexedClasses;
 
     JpaJandexScavenger(BuildProducer<ReflectiveClassBuildItem> reflectiveClass,
-            List<ParsedPersistenceXmlDescriptor> explicitDescriptors,
+            List<PersistenceXmlDescriptorBuildItem> explicitDescriptors,
             IndexView indexView,
             Set<String> nonJpaModelClasses,
             Set<String> ignorableNonIndexedClasses) {
@@ -86,10 +84,10 @@ final class JpaJandexScavenger {
         enlistEmbeddedsAndElementCollections(indexView, domainObjectCollector, enumTypeCollector, javaTypeCollector,
                 unindexedClasses);
 
-        for (PersistenceUnitDescriptor pud : explicitDescriptors) {
+        for (PersistenceXmlDescriptorBuildItem pud : explicitDescriptors) {
+            final List<String> managedClassNames = pud.getDescriptor().getManagedClassNames();
             enlistExplicitClasses(indexView, domainObjectCollector, enumTypeCollector, javaTypeCollector,
-                    pud.getManagedClassNames(),
-                    unindexedClasses);
+                    managedClassNames, unindexedClasses);
         }
 
         domainObjectCollector.registerAllForReflection(reflectiveClass);
@@ -218,7 +216,7 @@ final class JpaJandexScavenger {
             unindexedClasses.add(className);
             return;
         }
-        //we need to check for enums
+        // we need to check for enums
         for (FieldInfo fieldInfo : classInfo.fields()) {
             DotName fieldType = fieldInfo.type().name();
             ClassInfo fieldTypeClassInfo = index.getClassByName(fieldType);
@@ -272,7 +270,8 @@ final class JpaJandexScavenger {
 
     private static boolean isIgnored(DotName classDotName) {
         String className = classDotName.toString();
-        if (className.startsWith("java.util.") || className.startsWith("java.lang.")) {
+        if (className.startsWith("java.util.") || className.startsWith("java.lang.")
+                || className.startsWith("org.hibernate.engine.spi.")) {
             return true;
         }
         return false;

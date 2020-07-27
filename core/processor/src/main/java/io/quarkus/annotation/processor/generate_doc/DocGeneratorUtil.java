@@ -1,21 +1,29 @@
 package io.quarkus.annotation.processor.generate_doc;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.logging.Level;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeMirror;
 
 import io.quarkus.annotation.processor.Constants;
 
 public class DocGeneratorUtil {
+    private static final String CORE = "core";
+    private static final String CONFIG = "Config";
+    private static final String CONFIGURATION = "Configuration";
+    public static final String LEVEL_HACK_URL = "https://docs.jboss.org/jbossas/javadoc/7.1.2.Final/org/jboss/logmanager/Level.html";
+    private static String CONFIG_GROUP_DOC_PREFIX = "config-group-";
     static final String VERTX_JAVA_DOC_SITE = "https://vertx.io/docs/apidocs/";
     static final String OFFICIAL_JAVA_DOC_BASE_LINK = "https://docs.oracle.com/javase/8/docs/api/";
     static final String AGROAL_API_JAVA_DOC_SITE = "https://jar-download.com/javaDoc/io.agroal/agroal-api/1.5/index.html?";
@@ -24,6 +32,8 @@ public class DocGeneratorUtil {
     private static final Map<String, String> PRIMITIVE_DEFAULT_VALUES = new HashMap<>();
     private static final Map<String, String> EXTENSION_JAVA_DOC_LINK = new HashMap<>();
     private static Pattern PACKAGE_PATTERN = Pattern.compile("^(\\w+)\\.(\\w+)\\..*$");
+    private static final String HYPHEN = "-";
+    private static final Pattern PATTERN = Pattern.compile("([-_]+)");
 
     static {
         PRIMITIVE_DEFAULT_VALUES.put("int", "0");
@@ -52,8 +62,6 @@ public class DocGeneratorUtil {
      * Retrieve a default value of a primitive type.
      * If type is not a primitive, returns false
      *
-     * @param primitiveType
-     * @return
      */
     static String getPrimitiveDefaultValue(String primitiveType) {
         return PRIMITIVE_DEFAULT_VALUES.get(primitiveType);
@@ -71,6 +79,12 @@ public class DocGeneratorUtil {
      * Get javadoc link of a given type value
      */
     static String getJavaDocSiteLink(String type) {
+        if (type.equals(Level.class.getName())) {
+            //hack, we don't want to link to the JUL version, but the jboss logging version
+            //this seems like a one off use case so for now it is just hacked in here
+            //if there are other use cases we should do something more generic
+            return LEVEL_HACK_URL;
+        }
         Matcher packageMatcher = PACKAGE_PATTERN.matcher(type);
 
         if (!packageMatcher.find()) {
@@ -96,8 +110,12 @@ public class DocGeneratorUtil {
     }
 
     private static String getJavaDocLinkForType(String type) {
-        int indexOfFirstUpperCase = 0;
+        int beginOfWrappedTypeIndex = type.indexOf("<");
+        if (beginOfWrappedTypeIndex != -1) {
+            type = type.substring(0, beginOfWrappedTypeIndex);
+        }
 
+        int indexOfFirstUpperCase = 0;
         for (int index = 0; index < type.length(); index++) {
             char charAt = type.charAt(index);
             if (charAt >= 'A' && charAt <= 'Z') {
@@ -209,12 +227,12 @@ public class DocGeneratorUtil {
         };
     }
 
-    static String join(String delim, Iterator<String> it) {
+    static String join(Iterator<String> it) {
         final StringBuilder b = new StringBuilder();
         if (it.hasNext()) {
             b.append(it.next());
             while (it.hasNext()) {
-                b.append(delim);
+                b.append("-");
                 b.append(it.next());
             }
         }
@@ -222,11 +240,21 @@ public class DocGeneratorUtil {
     }
 
     static String hyphenate(String orig) {
-        return join("-", lowerCase(camelHumpsIterator(orig)));
+        return join(lowerCase(camelHumpsIterator(orig)));
     }
 
+    /**
+     * This needs to be consistent with io.quarkus.runtime.configuration.HyphenateEnumConverter.
+     */
     static String hyphenateEnumValue(String orig) {
-        return orig.replace('_', '-').toLowerCase(Locale.ROOT);
+        StringBuffer target = new StringBuffer();
+        String hyphenate = hyphenate(orig);
+        Matcher matcher = PATTERN.matcher(hyphenate);
+        while (matcher.find()) {
+            matcher.appendReplacement(target, HYPHEN);
+        }
+        matcher.appendTail(target);
+        return target.toString();
     }
 
     static String joinAcceptedValues(List<String> acceptedValues) {
@@ -256,43 +284,230 @@ public class DocGeneratorUtil {
     }
 
     /**
-     * Guess extension name from given configuration root file
+     * Guess extension name from given configuration root class name
      */
     public static String computeExtensionDocFileName(String configRoot) {
+        StringBuilder extensionNameBuilder = new StringBuilder();
         final Matcher matcher = Constants.PKG_PATTERN.matcher(configRoot);
         if (!matcher.find()) {
-            return configRoot + Constants.ADOC_EXTENSION;
-        }
-
-        String extensionName = matcher.group(1);
-        final String subgroup = matcher.group(2);
-        final StringBuilder key = new StringBuilder(Constants.QUARKUS);
-        key.append(Constants.DASH);
-
-        if (Constants.DEPLOYMENT.equals(extensionName) || Constants.RUNTIME.equals(extensionName)) {
-            final String configClass = configRoot.substring(configRoot.lastIndexOf(Constants.DOT) + 1);
-            extensionName = hyphenate(configClass);
-            key.append(Constants.CORE);
-            key.append(extensionName);
-        } else if (subgroup != null && !Constants.DEPLOYMENT.equals(subgroup)
-                && !Constants.RUNTIME.equals(subgroup) && !Constants.COMMON.equals(subgroup)
-                && subgroup.matches(Constants.DIGIT_OR_LOWERCASE)) {
-            key.append(extensionName);
-            key.append(Constants.DASH);
-            key.append(subgroup);
-
-            final String qualifier = matcher.group(3);
-            if (qualifier != null && !Constants.DEPLOYMENT.equals(qualifier)
-                    && !Constants.RUNTIME.equals(qualifier) && !Constants.COMMON.equals(qualifier)
-                    && qualifier.matches(Constants.DIGIT_OR_LOWERCASE)) {
-                key.append(Constants.DASH);
-                key.append(qualifier);
-            }
+            extensionNameBuilder.append(configRoot);
         } else {
-            key.append(extensionName);
+            String extensionName = matcher.group(1);
+            final String subgroup = matcher.group(2);
+            extensionNameBuilder.append(Constants.QUARKUS);
+            extensionNameBuilder.append(Constants.DASH);
+
+            if (Constants.DEPLOYMENT.equals(extensionName) || Constants.RUNTIME.equals(extensionName)) {
+                extensionNameBuilder.append(CORE);
+            } else if (subgroup != null && !Constants.DEPLOYMENT.equals(subgroup)
+                    && !Constants.RUNTIME.equals(subgroup) && !Constants.COMMON.equals(subgroup)
+                    && subgroup.matches(Constants.DIGIT_OR_LOWERCASE)) {
+                extensionNameBuilder.append(extensionName);
+                extensionNameBuilder.append(Constants.DASH);
+                extensionNameBuilder.append(subgroup);
+
+                final String qualifier = matcher.group(3);
+                if (qualifier != null && !Constants.DEPLOYMENT.equals(qualifier)
+                        && !Constants.RUNTIME.equals(qualifier) && !Constants.COMMON.equals(qualifier)
+                        && qualifier.matches(Constants.DIGIT_OR_LOWERCASE)) {
+                    extensionNameBuilder.append(Constants.DASH);
+                    extensionNameBuilder.append(qualifier);
+                }
+            } else {
+                extensionNameBuilder.append(extensionName);
+            }
         }
 
-        key.append(Constants.ADOC_EXTENSION);
-        return key.toString();
+        extensionNameBuilder.append(Constants.ADOC_EXTENSION);
+        return extensionNameBuilder.toString();
     }
+
+    /**
+     * Guess extension name from given configuration root class name
+     */
+    public static String computeExtensionGeneralConfigDocFileName(String configRoot) {
+        StringBuilder extensionNameBuilder = new StringBuilder();
+        final Matcher matcher = Constants.PKG_PATTERN.matcher(configRoot);
+        if (!matcher.find()) {
+            extensionNameBuilder.append(configRoot);
+        } else {
+            String extensionName = matcher.group(1);
+            final String subgroup = matcher.group(2);
+            extensionNameBuilder.append(Constants.QUARKUS);
+            extensionNameBuilder.append(Constants.DASH);
+
+            if (Constants.DEPLOYMENT.equals(extensionName) || Constants.RUNTIME.equals(extensionName)) {
+                extensionNameBuilder.append(CORE);
+            } else if (subgroup != null && !Constants.DEPLOYMENT.equals(subgroup)
+                    && !Constants.RUNTIME.equals(subgroup) && !Constants.COMMON.equals(subgroup)
+                    && subgroup.matches(Constants.DIGIT_OR_LOWERCASE)) {
+                extensionNameBuilder.append(extensionName);
+                extensionNameBuilder.append(Constants.DASH);
+                extensionNameBuilder.append(subgroup);
+
+                final String qualifier = matcher.group(3);
+                if (qualifier != null && !Constants.DEPLOYMENT.equals(qualifier)
+                        && !Constants.RUNTIME.equals(qualifier) && !Constants.COMMON.equals(qualifier)
+                        && qualifier.matches(Constants.DIGIT_OR_LOWERCASE)) {
+                    extensionNameBuilder.append(Constants.DASH);
+                    extensionNameBuilder.append(qualifier);
+                }
+            } else {
+                extensionNameBuilder.append(extensionName);
+            }
+        }
+
+        extensionNameBuilder.append(Constants.ADOC_EXTENSION);
+        return extensionNameBuilder.toString();
+    }
+
+    /**
+     * Guess config group file name from given configuration group class name
+     */
+    public static String computeConfigGroupDocFileName(String configGroupClassName) {
+        final String sanitizedClassName;
+        final Matcher matcher = Constants.PKG_PATTERN.matcher(configGroupClassName);
+
+        if (!matcher.find()) {
+            sanitizedClassName = CONFIG_GROUP_DOC_PREFIX + Constants.DASH + hyphenate(configGroupClassName);
+        } else {
+            String replacement = Constants.DASH + CONFIG_GROUP_DOC_PREFIX + Constants.DASH;
+            sanitizedClassName = configGroupClassName
+                    .replaceFirst("io.", "")
+                    .replaceFirst("\\.runtime\\.", replacement)
+                    .replaceFirst("\\.deployment\\.", replacement);
+        }
+
+        return hyphenate(sanitizedClassName)
+                .replaceAll("[\\.-]+", Constants.DASH)
+                + Constants.ADOC_EXTENSION;
+    }
+
+    /**
+     * Guess config root file name from given configuration root class name.
+     */
+    public static String computeConfigRootDocFileName(String configRootClassName, String rootName) {
+        String sanitizedClassName;
+        final Matcher matcher = Constants.PKG_PATTERN.matcher(configRootClassName);
+
+        if (!matcher.find()) {
+            sanitizedClassName = rootName + Constants.DASH + hyphenate(configRootClassName);
+        } else {
+            String deployment = Constants.DOT + Constants.DEPLOYMENT + Constants.DOT;
+            String runtime = Constants.DOT + Constants.RUNTIME + Constants.DOT;
+
+            if (configRootClassName.contains(deployment)) {
+                sanitizedClassName = configRootClassName
+                        .substring(configRootClassName.indexOf(deployment) + deployment.length());
+            } else if (configRootClassName.contains(runtime)) {
+                sanitizedClassName = configRootClassName.substring(configRootClassName.indexOf(runtime) + runtime.length());
+            } else {
+                sanitizedClassName = configRootClassName.replaceFirst("io.quarkus.", "");
+            }
+
+            sanitizedClassName = rootName + Constants.DASH + sanitizedClassName;
+        }
+
+        return hyphenate(sanitizedClassName)
+                .replaceAll("[\\.-]+", Constants.DASH)
+                + Constants.ADOC_EXTENSION;
+    }
+
+    public static void appendConfigItemsIntoExistingOnes(List<ConfigDocItem> existingConfigItems,
+            List<ConfigDocItem> configDocItems) {
+        for (ConfigDocItem configDocItem : configDocItems) {
+            if (configDocItem.isConfigKey()) {
+                existingConfigItems.add(configDocItem);
+            } else {
+                ConfigDocSection configDocSection = configDocItem.getConfigDocSection();
+                boolean configSectionMerged = mergeSectionIntoPreviousExistingConfigItems(configDocSection,
+                        existingConfigItems);
+                if (!configSectionMerged) {
+                    existingConfigItems.add(configDocItem);
+                }
+            }
+        }
+    }
+
+    /**
+     * returns true if section is merged into one of the existing config items, false otherwise
+     */
+    private static boolean mergeSectionIntoPreviousExistingConfigItems(ConfigDocSection section,
+            List<ConfigDocItem> configDocItems) {
+        for (ConfigDocItem configDocItem : configDocItems) {
+            if (configDocItem.isConfigKey()) {
+                continue;
+            }
+
+            ConfigDocSection configDocSection = configDocItem.getConfigDocSection();
+            if (configDocSection.equals(section)) {
+                configDocSection.addConfigDocItems(section.getConfigDocItems());
+                return true;
+            } else {
+                boolean configSectionMerged = mergeSectionIntoPreviousExistingConfigItems(section,
+                        configDocSection.getConfigDocItems());
+                if (configSectionMerged) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    static String stringifyType(TypeMirror typeMirror) {
+        List<? extends TypeMirror> typeArguments = ((DeclaredType) typeMirror).getTypeArguments();
+        String simpleName = typeSimpleName(typeMirror);
+        if (typeArguments.isEmpty()) {
+            return simpleName;
+        } else if (typeArguments.size() == 1) {
+            return String.format("%s<%s>", simpleName, stringifyType(typeArguments.get(0)));
+        } else if (typeArguments.size() == 2) {
+            return String.format("%s<%s,%s>", simpleName, stringifyType(typeArguments.get(0)),
+                    stringifyType(typeArguments.get(1)));
+        }
+
+        return "unknown"; // we should not reach here
+    }
+
+    private static String typeSimpleName(TypeMirror typeMirror) {
+        String type = ((DeclaredType) typeMirror).asElement().toString();
+        return type.substring(1 + type.lastIndexOf(Constants.DOT));
+    }
+
+    static String deriveConfigRootName(String simpleClassName, ConfigPhase configPhase) {
+        String simpleNameInLowerCase = simpleClassName.toLowerCase();
+        int length = simpleNameInLowerCase.length();
+
+        if (simpleNameInLowerCase.endsWith(CONFIG.toLowerCase())) {
+            String sanitized = simpleClassName.substring(0, length - CONFIG.length());
+            return deriveConfigRootName(sanitized, configPhase);
+        } else if (simpleNameInLowerCase.endsWith(CONFIGURATION.toLowerCase())) {
+            String sanitized = simpleClassName.substring(0, length - CONFIGURATION.length());
+            return deriveConfigRootName(sanitized, configPhase);
+        } else if (simpleNameInLowerCase.endsWith(configPhase.getConfigSuffix().toLowerCase())) {
+            String sanitized = simpleClassName.substring(0, length - configPhase.getConfigSuffix().length());
+            return deriveConfigRootName(sanitized, configPhase);
+        }
+
+        return Constants.QUARKUS + Constants.DOT + hyphenate(simpleClassName);
+    }
+
+    /**
+     * Sort docs keys. The sorted list will contain the properties in the following order
+     * - 1. Map config items as last elements of the generated docs.
+     * - 2. Build time properties will come first.
+     * - 3. Otherwise respect source code declaration order.
+     * - 4. Elements within a configuration section will appear at the end of the generated doc while preserving described in
+     * 1-4.
+     */
+    public static void sort(List<ConfigDocItem> configDocItems) {
+        Collections.sort(configDocItems);
+        for (ConfigDocItem configDocItem : configDocItems) {
+            if (configDocItem.isConfigSection()) {
+                sort(configDocItem.getConfigDocSection().getConfigDocItems());
+            }
+        }
+    }
+
 }

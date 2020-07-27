@@ -14,7 +14,6 @@ import javax.sql.DataSource;
 
 import org.hibernate.boot.registry.StandardServiceRegistry;
 import org.hibernate.boot.registry.internal.StandardServiceRegistryImpl;
-import org.hibernate.boot.spi.MetadataImplementor;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.jpa.boot.spi.EntityManagerFactoryBuilder;
 import org.hibernate.jpa.boot.spi.PersistenceUnitDescriptor;
@@ -27,6 +26,7 @@ import io.quarkus.arc.InstanceHandle;
 import io.quarkus.hibernate.orm.runtime.boot.FastBootEntityManagerFactoryBuilder;
 import io.quarkus.hibernate.orm.runtime.boot.registry.PreconfiguredServiceRegistryBuilder;
 import io.quarkus.hibernate.orm.runtime.integration.HibernateOrmIntegrations;
+import io.quarkus.hibernate.orm.runtime.recording.PrevalidatedQuarkusMetadata;
 import io.quarkus.hibernate.orm.runtime.recording.RecordedState;
 
 /**
@@ -35,7 +35,7 @@ import io.quarkus.hibernate.orm.runtime.recording.RecordedState;
  * that: we need to be able to fully exclude HibernatePersistenceProvider from
  * the native image.
  */
-final class FastBootHibernatePersistenceProvider implements PersistenceProvider {
+public final class FastBootHibernatePersistenceProvider implements PersistenceProvider {
 
     private static final Logger log = Logger.getLogger(FastBootHibernatePersistenceProvider.class);
 
@@ -92,8 +92,12 @@ final class FastBootHibernatePersistenceProvider implements PersistenceProvider 
     }
 
     @SuppressWarnings("rawtypes")
-    protected EntityManagerFactoryBuilder getEntityManagerFactoryBuilder(PersistenceUnitInfo info, Map integration) {
-        throw new UnsupportedOperationException("Not implemented");
+    public EntityManagerFactoryBuilder getEntityManagerFactoryBuilder(PersistenceUnitInfo info, Map integration) {
+        return getEntityManagerFactoryBuilder(info.getPersistenceUnitName(), integration);
+    }
+
+    public EntityManagerFactoryBuilder getEntityManagerFactoryBuilder(String persistenceUnitName, Map integration) {
+        return getEntityManagerFactoryBuilderOrNull(persistenceUnitName, integration);
     }
 
     /**
@@ -145,7 +149,11 @@ final class FastBootHibernatePersistenceProvider implements PersistenceProvider 
 
             RecordedState recordedState = PersistenceUnitsHolder.getRecordedState(persistenceUnitName);
 
-            final MetadataImplementor metadata = recordedState.getMetadata();
+            if (recordedState.isReactive()) {
+                throw new IllegalStateException(
+                        "Attempting to boot a blocking Hibernate ORM instance on a reactive RecordedState");
+            }
+            final PrevalidatedQuarkusMetadata metadata = recordedState.getMetadata();
             final BuildTimeSettings buildTimeSettings = recordedState.getBuildTimeSettings();
             final IntegrationSettings integrationSettings = recordedState.getIntegrationSettings();
             RuntimeSettings.Builder runtimeSettingsBuilder = new RuntimeSettings.Builder(buildTimeSettings,
@@ -169,7 +177,7 @@ final class FastBootHibernatePersistenceProvider implements PersistenceProvider 
                     persistenceUnitName,
                     standardServiceRegistry /* Mostly ignored! (yet needs to match) */,
                     runtimeSettings,
-                    validatorFactory, cdiBeanManager);
+                    validatorFactory, cdiBeanManager, recordedState.getMultiTenancyStrategy());
         }
 
         log.debug("Found no matching persistence units");

@@ -19,17 +19,7 @@ public interface BeanDeploymentValidator extends BuildExtension {
      * @see Key#OBSERVERS
      * @see DeploymentException
      */
-    default void validate(ValidationContext validationContext) {
-    }
-
-    /**
-     * 
-     * @param target
-     * @param rule
-     * @return {@code true} if the given validation rule should be skipped for the specified target
-     */
-    default boolean skipValidation(InjectionTargetInfo target, ValidationRule rule) {
-        return false;
+    default void validate(ValidationContext context) {
     }
 
     interface ValidationContext extends BuildContext {
@@ -38,20 +28,17 @@ public interface BeanDeploymentValidator extends BuildExtension {
 
         List<Throwable> getDeploymentProblems();
 
-    }
+        /**
+         * 
+         * @return a new stream of beans that form the deployment
+         */
+        BeanStream beans();
 
-    public enum ValidationRule {
-
-        NO_ARGS_CONSTRUCTOR;
-
-        boolean skipFor(List<BeanDeploymentValidator> validators, InjectionTargetInfo target) {
-            for (BeanDeploymentValidator validator : validators) {
-                if (validator.skipValidation(target, this)) {
-                    return true;
-                }
-            }
-            return false;
-        }
+        /**
+         * 
+         * @return a new stream of beans that are considered {@code unused} and were removed from the deployment
+         */
+        BeanStream removedBeans();
 
     }
 

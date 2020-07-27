@@ -25,11 +25,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
+import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
-import javax.enterprise.context.ApplicationScoped;
+import javax.inject.Singleton;
 
 import org.jboss.logging.Logger;
 
@@ -39,15 +39,16 @@ import io.quarkus.security.AuthenticationFailedException;
 import io.quarkus.security.credential.PasswordCredential;
 import io.quarkus.security.identity.IdentityProviderManager;
 import io.quarkus.security.identity.SecurityIdentity;
+import io.quarkus.security.identity.request.AuthenticationRequest;
 import io.quarkus.security.identity.request.UsernamePasswordAuthenticationRequest;
+import io.smallrye.mutiny.Uni;
 import io.vertx.ext.web.RoutingContext;
 
 /**
  * The authentication handler responsible for BASIC authentication as described by RFC2617
  *
- * @author <a href="mailto:darran.lofthouse@jboss.com">Darran Lofthouse</a>
  */
-@ApplicationScoped
+@Singleton
 public class BasicAuthenticationMechanism implements HttpAuthenticationMechanism {
 
     private static final Logger log = Logger.getLogger(BasicAuthenticationMechanism.class);
@@ -113,7 +114,7 @@ public class BasicAuthenticationMechanism implements HttpAuthenticationMechanism
     }
 
     @Override
-    public CompletionStage<SecurityIdentity> authenticate(RoutingContext context,
+    public Uni<SecurityIdentity> authenticate(RoutingContext context,
             IdentityProviderManager identityProviderManager) {
         List<String> authHeaders = context.request().headers().getAll(HttpHeaderNames.AUTHORIZATION);
         if (authHeaders != null) {
@@ -138,11 +139,11 @@ public class BasicAuthenticationMechanism implements HttpAuthenticationMechanism
                     }
 
                     plainChallenge = new String(decode, charset);
-                    log.debugf("Found basic auth header %s (decoded using charset %s)", plainChallenge, charset);
                     int colonPos;
                     if ((colonPos = plainChallenge.indexOf(COLON)) > -1) {
                         String userName = plainChallenge.substring(0, colonPos);
                         char[] password = plainChallenge.substring(colonPos + 1).toCharArray();
+                        log.debugf("Found basic auth header %s:***** (decoded using charset %s)", userName, charset);
 
                         UsernamePasswordAuthenticationRequest credential = new UsernamePasswordAuthenticationRequest(userName,
                                 new PasswordCredential(password));
@@ -151,29 +152,39 @@ public class BasicAuthenticationMechanism implements HttpAuthenticationMechanism
 
                     // By this point we had a header we should have been able to verify but for some reason
                     // it was not correctly structured.
-                    CompletableFuture<SecurityIdentity> cf = new CompletableFuture<>();
-                    cf.completeExceptionally(new AuthenticationFailedException());
-                    return cf;
+                    return Uni.createFrom().failure(new AuthenticationFailedException());
                 }
             }
         }
 
         // No suitable header has been found in this request,
-        return CompletableFuture.completedFuture(null);
+        return Uni.createFrom().optional(Optional.empty());
     }
 
     @Override
-    public CompletionStage<Boolean> sendChallenge(RoutingContext context) {
+    public Uni<ChallengeData> getChallenge(RoutingContext context) {
         if (silent) {
             //if this is silent we only send a challenge if the request contained auth headers
             //otherwise we assume another method will send the challenge
             String authHeader = context.request().headers().get(HttpHeaderNames.AUTHORIZATION);
             if (authHeader == null) {
-                return CompletableFuture.completedFuture(false);
+                return Uni.createFrom().optional(Optional.empty());
             }
         }
-        context.response().headers().set(HttpHeaderNames.WWW_AUTHENTICATE, challenge);
-        context.response().setStatusCode(HttpResponseStatus.UNAUTHORIZED.code());
-        return CompletableFuture.completedFuture(true);
+        ChallengeData result = new ChallengeData(
+                HttpResponseStatus.UNAUTHORIZED.code(),
+                HttpHeaderNames.WWW_AUTHENTICATE,
+                challenge);
+        return Uni.createFrom().item(result);
+    }
+
+    @Override
+    public Set<Class<? extends AuthenticationRequest>> getCredentialTypes() {
+        return Collections.singleton(UsernamePasswordAuthenticationRequest.class);
+    }
+
+    @Override
+    public HttpCredentialTransport getCredentialTransport() {
+        return new HttpCredentialTransport(HttpCredentialTransport.Type.AUTHORIZATION, BASIC);
     }
 }

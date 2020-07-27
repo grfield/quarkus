@@ -7,13 +7,18 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+import org.apache.commons.lang3.StringUtils;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.ClassType;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.IndexView;
 import org.jboss.jandex.MethodInfo;
+import org.jboss.jandex.ParameterizedType;
+import org.jboss.jandex.Type;
+import org.jboss.jandex.Type.Kind;
 
 import io.quarkus.panache.common.Sort;
 
@@ -57,10 +62,12 @@ public class MethodNameParser {
 
     private final ClassInfo entityClass;
     private final IndexView indexView;
+    private final List<ClassInfo> mappedSuperClassInfos;
 
     public MethodNameParser(ClassInfo entityClass, IndexView indexView) {
         this.entityClass = entityClass;
         this.indexView = indexView;
+        this.mappedSuperClassInfos = getMappedSuperClassInfos(indexView, entityClass);
     }
 
     public enum QueryType {
@@ -115,12 +122,12 @@ public class MethodNameParser {
         boolean allIgnoreCase = false;
         if (afterByPart.contains(ALL_IGNORE_CASE)) {
             allIgnoreCase = true;
-            afterByPart = afterByPart.replaceAll(ALL_IGNORE_CASE, "");
+            afterByPart = afterByPart.replace(ALL_IGNORE_CASE, "");
         }
 
         // handle the 'OrderBy' clause which is assumed to be at the end of the query
         Sort sort = null;
-        if (afterByPart.contains(ORDER_BY)) {
+        if (containsLogicOperator(afterByPart, ORDER_BY)) {
             int orderByIndex = afterByPart.indexOf(ORDER_BY);
             if (orderByIndex + ORDER_BY.length() == afterByPart.length()) {
                 throw new UnableToParseMethodException(
@@ -131,10 +138,10 @@ public class MethodNameParser {
             boolean ascending = true;
             if (afterOrderByPart.endsWith("Asc")) {
                 ascending = true;
-                afterOrderByPart = afterOrderByPart.replaceAll("Asc", "");
+                afterOrderByPart = afterOrderByPart.replace("Asc", "");
             } else if (afterOrderByPart.endsWith("Desc")) {
                 ascending = false;
-                afterOrderByPart = afterOrderByPart.replaceAll("Desc", "");
+                afterOrderByPart = afterOrderByPart.replace("Desc", "");
             }
             String orderField = lowerFirstLetter(afterOrderByPart);
             if (!entityContainsField(orderField)) {
@@ -152,8 +159,8 @@ public class MethodNameParser {
         }
 
         List<String> parts = Collections.singletonList(afterByPart); // default when no 'And' or 'Or' exists
-        boolean containsAnd = afterByPart.contains("And");
-        boolean containsOr = afterByPart.contains("Or");
+        boolean containsAnd = containsLogicOperator(afterByPart, "And");
+        boolean containsOr = containsLogicOperator(afterByPart, "Or");
         if (containsAnd && containsOr) {
             throw new UnableToParseMethodException(
                     "'And' and 'Or' clauses cannot be mixed in a method name - Try specifying the Query with the @Query annotation. Offending method is "
@@ -176,7 +183,7 @@ public class MethodNameParser {
 
             if (part.endsWith(IGNORE_CASE)) {
                 ignoreCase = true;
-                part = part.replaceAll(IGNORE_CASE, "");
+                part = part.replace(IGNORE_CASE, "");
             }
 
             String operation = getFieldOperation(part);
@@ -185,7 +192,7 @@ public class MethodNameParser {
             } else {
                 fieldName = lowerFirstLetter(part.replaceAll(operation, ""));
             }
-            FieldInfo fieldInfo = entityClass.field(fieldName);
+            FieldInfo fieldInfo = getField(fieldName);
             if (fieldInfo == null) {
                 String parsingExceptionMethod = "Entity " + entityClass + " does not contain a field named: " + part + ". " +
                         "Offending method is " + methodName;
@@ -213,7 +220,7 @@ public class MethodNameParser {
 
                 String simpleFieldName = fieldName.substring(0, fieldEndIndex);
                 String associatedEntityFieldName = lowerFirstLetter(fieldName.substring(associatedEntityFieldStartIndex));
-                fieldInfo = entityClass.field(simpleFieldName);
+                fieldInfo = getField(simpleFieldName);
                 if ((fieldInfo == null) || !(fieldInfo.type() instanceof ClassType)) {
                     throw new UnableToParseMethodException(parsingExceptionMethod);
                 }
@@ -223,7 +230,8 @@ public class MethodNameParser {
                     throw new IllegalStateException(
                             "Entity class " + fieldInfo.type().name() + " was not part of the Quarkus index");
                 }
-                FieldInfo associatedEntityClassField = associatedEntityClassInfo.field(associatedEntityFieldName);
+                FieldInfo associatedEntityClassField = getAssociatedEntityClassField(associatedEntityFieldName,
+                        associatedEntityClassInfo);
                 if (associatedEntityClassField == null) {
                     throw new UnableToParseMethodException(parsingExceptionMethod);
                 }
@@ -245,14 +253,20 @@ public class MethodNameParser {
                 where.append(containsAnd ? " AND " : " OR ");
             }
 
+            String upperPrefix = (ignoreCase || allIgnoreCase) ? "UPPER(" : "";
+            String upperSuffix = (ignoreCase || allIgnoreCase) ? ")" : "";
+
+            // If the fieldName is not a field in the class and in camelcase format,
+            // then split it as hierarchy of fields
+            if (entityClass.field(fieldName) == null) {
+                fieldName = handleFieldsHierarchy(fieldName, fieldInfo);
+            }
+
+            where.append(upperPrefix).append(fieldName).append(upperSuffix);
             if ((operation == null) || "Equals".equals(operation) || "Is".equals(operation)) {
-                String upperPrefix = (ignoreCase || allIgnoreCase) ? "UPPER(" : "";
-                String upperSuffix = (ignoreCase || allIgnoreCase) ? ")" : "";
-                where.append(upperPrefix).append(fieldName).append(upperSuffix);
                 paramsCount++;
                 where.append(" = ").append(upperPrefix).append("?").append(paramsCount).append(upperSuffix);
             } else {
-                where.append(fieldName);
                 switch (operation) {
                     case "IsNot":
                     case "Not":
@@ -313,19 +327,22 @@ public class MethodNameParser {
                     case "StartingWith":
                     case "StartsWith":
                         paramsCount++;
-                        where.append(" LIKE CONCAT(?").append(paramsCount).append(", '%')");
+                        where.append(" LIKE CONCAT(").append(upperPrefix).append("?").append(paramsCount).append(upperSuffix)
+                                .append(", '%')");
                         break;
                     case "IsEndingWith":
                     case "EndingWith":
                     case "EndsWith":
                         paramsCount++;
-                        where.append(" LIKE CONCAT('%', ?").append(paramsCount).append(")");
+                        where.append(" LIKE CONCAT('%', ").append(upperPrefix).append("?").append(paramsCount)
+                                .append(upperSuffix).append(")");
                         break;
                     case "IsContaining":
                     case "Containing":
                     case "Contains":
                         paramsCount++;
-                        where.append(" LIKE CONCAT('%', ?").append(paramsCount).append(", '%')");
+                        where.append(" LIKE CONCAT('%', ").append(upperPrefix).append("?").append(paramsCount)
+                                .append(upperSuffix).append(", '%')");
                         break;
                     case "True":
                     case "False":
@@ -356,6 +373,112 @@ public class MethodNameParser {
         String whereQuery = where.toString().isEmpty() ? "" : " WHERE " + where.toString();
         return new Result(entityClass, "FROM " + getEntityName() + whereQuery, queryType, paramsCount, sort,
                 topCount);
+    }
+
+    private String handleFieldsHierarchy(String fieldName, FieldInfo currentField) {
+        StringBuilder finalName = new StringBuilder(fieldName);
+
+        Set<String> childFields = new HashSet<>();
+
+        childFields.addAll(entityClass.fields().stream()
+                .map(FieldInfo::name)
+                .collect(Collectors.toList()));
+
+        // Collecting the current class fields
+        ClassInfo currentClassInfo = indexView.getClassByName(currentField.type().name());
+
+        if (currentClassInfo != null) {
+            childFields.addAll(
+                    currentClassInfo.fields()
+                            .stream()
+                            .map(FieldInfo::name)
+                            .collect(Collectors.toList()));
+        }
+
+        // Collecting the inherited fields from the superclass of the actual class
+        DotName superClassName = entityClass.superClassType().name();
+        ClassInfo superClassInfo = indexView.getClassByName(superClassName);
+
+        ClassInfo classByName;
+
+        if (superClassName != null && superClassInfo != null && currentClassInfo != null &&
+                currentClassInfo.superClassType() != null &&
+                (classByName = indexView.getClassByName(currentClassInfo.superClassType().name())) != null) {
+
+            childFields.addAll(superClassInfo.fields()
+                    .stream()
+                    .map(FieldInfo::name).collect(Collectors.toList()));
+
+            childFields.addAll(classByName.fields()
+                    .stream()
+                    .map(FieldInfo::name).collect(Collectors.toList()));
+        }
+
+        // Collecting the inherited fields from the superclasses of the attributes
+        if (currentClassInfo != null && currentClassInfo.superClassType() != null
+                && (classByName = indexView.getClassByName(currentClassInfo.superClassType().name())) != null) {
+
+            childFields.addAll(
+                    classByName.fields()
+                            .stream()
+                            .map(FieldInfo::name).collect(Collectors.toList()));
+        }
+
+        // Building the fieldName from the members classes and their superclasses
+        for (String fieldInf : childFields) {
+            if (StringUtils.containsIgnoreCase(fieldName, fieldInf)) {
+                String newValue = finalName.toString()
+                        .replaceAll("(?i)" + fieldInf, lowerFirstLetter(fieldInf) + ".");
+                finalName.delete(0, finalName.length());
+                finalName.append(newValue);
+            }
+        }
+
+        // In some cases, the built hierarchy is ending by a joining point. so we need to remove it
+        if (finalName.toString().charAt(finalName.length() - 1) == '.') {
+            fieldName = finalName.toString().replaceAll(".$", "");
+        } else {
+            fieldName = finalName.toString();
+        }
+        return fieldName;
+    }
+
+    /**
+     * Meant to be called with {@param operator} being {@code "And"} or {@code "Or"}
+     * and returns {@code true} if the string contains the logical operator
+     * and the next character is an uppercase character.
+     * The reasoning is that if the next character is not uppercase,
+     * then the operator string is just part of a word
+     */
+    private boolean containsLogicOperator(String str, String operatorStr) {
+        int index = str.indexOf(operatorStr);
+        if (index == -1) {
+            return false;
+        }
+        if (str.length() < index + operatorStr.length() + 1) {
+            return false;
+        }
+        return Character.isUpperCase(str.charAt(index + operatorStr.length()));
+    }
+
+    /**
+     * Looks for the field in either the class itself or in a superclass that is annotated with @MappedSuperClass
+     */
+    private FieldInfo getAssociatedEntityClassField(String associatedEntityFieldName, ClassInfo associatedEntityClassInfo) {
+        FieldInfo fieldInfo = associatedEntityClassInfo.field(associatedEntityFieldName);
+        if (fieldInfo != null) {
+            return fieldInfo;
+        }
+        if (DotNames.OBJECT.equals(associatedEntityClassInfo.superName())) {
+            return null;
+        }
+
+        ClassInfo superClassInfo = indexView.getClassByName(associatedEntityClassInfo.superName());
+        if (superClassInfo.classAnnotation(DotNames.JPA_MAPPED_SUPERCLASS) == null) {
+            return null;
+        }
+
+        return getAssociatedEntityClassField(associatedEntityFieldName, superClassInfo);
     }
 
     private void validateFieldWithOperation(String operation, FieldInfo fieldInfo, String methodName) {
@@ -428,7 +551,55 @@ public class MethodNameParser {
     }
 
     private boolean entityContainsField(String fieldName) {
-        return entityClass.field(fieldName) != null;
+        if (entityClass.field(fieldName) != null) {
+            return true;
+        }
+
+        for (ClassInfo superClass : mappedSuperClassInfos) {
+            FieldInfo fieldInfo = superClass.field(fieldName);
+            if (fieldInfo != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private FieldInfo getField(String fieldName) {
+        // Before validating the fieldInfo,
+        // we need to split the camelcase format and grab the first item
+        FieldInfo fieldInfo = entityClass.field(fieldName);
+        if (fieldInfo == null) {
+            String[] camelCaseStrings = StringUtils.splitByCharacterTypeCamelCase(fieldName);
+            fieldInfo = entityClass.field(camelCaseStrings[0]);
+        }
+        if (fieldInfo == null) {
+            for (ClassInfo superClass : mappedSuperClassInfos) {
+                fieldInfo = superClass.field(fieldName);
+                if (fieldInfo != null) {
+                    break;
+                }
+            }
+        }
+        return fieldInfo;
+    }
+
+    private List<ClassInfo> getMappedSuperClassInfos(IndexView indexView, ClassInfo entityClass) {
+        List<ClassInfo> mappedSuperClassInfoElements = new ArrayList<>(3);
+        Type superClassType = entityClass.superClassType();
+        while (superClassType != null && !superClassType.name().equals(DotNames.OBJECT)) {
+            ClassInfo superClass = indexView.getClassByName(entityClass.superName());
+            if (superClass.classAnnotation(DotNames.JPA_MAPPED_SUPERCLASS) != null) {
+                mappedSuperClassInfoElements.add(superClass);
+            }
+
+            if (superClassType.kind() == Kind.CLASS) {
+                superClassType = indexView.getClassByName(superClassType.name()).superClassType();
+            } else if (superClassType.kind() == Kind.PARAMETERIZED_TYPE) {
+                ParameterizedType parameterizedType = superClassType.asParameterizedType();
+                superClassType = parameterizedType.owner();
+            }
+        }
+        return mappedSuperClassInfoElements;
     }
 
     public static class Result {

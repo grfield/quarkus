@@ -62,8 +62,10 @@ public class BookRepositoryResource {
     @DELETE
     @Path("/{id}")
     public void deleteBook(@PathParam("id") String id) {
-        Book theBook = bookRepository.findById(new ObjectId(id));
-        bookRepository.delete(theBook);
+        boolean deleted = bookRepository.deleteById(new ObjectId(id));
+        if (!deleted) {
+            throw new NotFoundException();
+        }
     }
 
     @GET
@@ -73,9 +75,15 @@ public class BookRepositoryResource {
     }
 
     @GET
+    @Path("/optional/{id}")
+    public Book getBookOptional(@PathParam("id") String id) {
+        return bookRepository.findByIdOptional(new ObjectId(id)).orElseThrow(() -> new NotFoundException());
+    }
+
+    @GET
     @Path("/search/{author}")
-    public List<Book> getBooksByAuthor(@PathParam("author") String author) {
-        return bookRepository.list("author", author);
+    public List<BookShortView> getBooksByAuthor(@PathParam("author") String author) {
+        return bookRepository.find("author", author).project(BookShortView.class).list();
     }
 
     @GET
@@ -89,7 +97,7 @@ public class BookRepositoryResource {
         return bookRepository
                 .find("{'creationDate': {$gte: ?1}, 'creationDate': {$lte: ?2}}", LocalDate.parse(dateFrom),
                         LocalDate.parse(dateTo))
-                .firstResult();
+                .firstResultOptional().orElseThrow(() -> new NotFoundException());
     }
 
     @GET
@@ -105,4 +113,8 @@ public class BookRepositoryResource {
                 Parameters.with("dateFrom", LocalDate.parse(dateFrom)).and("dateTo", LocalDate.parse(dateTo))).firstResult();
     }
 
+    @DELETE
+    public void deleteAll() {
+        bookRepository.deleteAll();
+    }
 }

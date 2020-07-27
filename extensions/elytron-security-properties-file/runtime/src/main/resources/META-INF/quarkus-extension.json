@@ -1,8 +1,0 @@
-
-{
-    "name": "Properties File based Security",
-    "labels": [
-        "security"
-    ],
-    "guide": "https://quarkus.io/guides/elytron-properties-guide"
-}

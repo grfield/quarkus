@@ -1,6 +1,7 @@
 package io.quarkus.hibernate.orm.panache.deployment;
 
 import java.lang.reflect.Modifier;
+import java.util.List;
 
 import javax.persistence.Transient;
 
@@ -22,37 +23,42 @@ import io.quarkus.panache.common.deployment.EntityField;
 import io.quarkus.panache.common.deployment.EntityModel;
 import io.quarkus.panache.common.deployment.MetamodelInfo;
 import io.quarkus.panache.common.deployment.PanacheEntityEnhancer;
+import io.quarkus.panache.common.deployment.PanacheMethodCustomizer;
 
 public class PanacheJpaEntityEnhancer extends PanacheEntityEnhancer<MetamodelInfo<EntityModel<EntityField>>> {
 
-    public final static String ENTITY_BASE_NAME = PanacheEntityBase.class.getName();
-    public final static String ENTITY_BASE_BINARY_NAME = ENTITY_BASE_NAME.replace('.', '/');
-    public final static String ENTITY_BASE_SIGNATURE = "L" + ENTITY_BASE_BINARY_NAME + ";";
+    public static final String ENTITY_BASE_NAME = PanacheEntityBase.class.getName();
+    public static final String ENTITY_BASE_BINARY_NAME = ENTITY_BASE_NAME.replace('.', '/');
+    public static final String ENTITY_BASE_SIGNATURE = "L" + ENTITY_BASE_BINARY_NAME + ";";
 
-    public final static String QUERY_NAME = PanacheQuery.class.getName();
-    public final static String QUERY_BINARY_NAME = QUERY_NAME.replace('.', '/');
-    public final static String QUERY_SIGNATURE = "L" + QUERY_BINARY_NAME + ";";
+    public static final String QUERY_NAME = PanacheQuery.class.getName();
+    public static final String QUERY_BINARY_NAME = QUERY_NAME.replace('.', '/');
+    public static final String QUERY_SIGNATURE = "L" + QUERY_BINARY_NAME + ";";
 
-    public final static String JPA_OPERATIONS_NAME = JpaOperations.class.getName();
-    public final static String JPA_OPERATIONS_BINARY_NAME = JPA_OPERATIONS_NAME.replace('.', '/');
+    public static final String JPA_OPERATIONS_NAME = JpaOperations.class.getName();
+    public static final String JPA_OPERATIONS_BINARY_NAME = JPA_OPERATIONS_NAME.replace('.', '/');
 
     private static final DotName DOTNAME_TRANSIENT = DotName.createSimple(Transient.class.getName());
 
-    public PanacheJpaEntityEnhancer(IndexView index) {
-        super(index, PanacheResourceProcessor.DOTNAME_PANACHE_ENTITY_BASE);
+    public PanacheJpaEntityEnhancer(IndexView index, List<PanacheMethodCustomizer> methodCustomizers) {
+        super(index, PanacheHibernateResourceProcessor.DOTNAME_PANACHE_ENTITY_BASE, methodCustomizers);
         modelInfo = new MetamodelInfo<>();
     }
 
     @Override
     public ClassVisitor apply(String className, ClassVisitor outputClassVisitor) {
-        return new PanacheJpaEntityClassVisitor(className, outputClassVisitor, modelInfo, panacheEntityBaseClassInfo);
+        return new PanacheJpaEntityClassVisitor(className, outputClassVisitor, modelInfo, panacheEntityBaseClassInfo,
+                indexView.getClassByName(DotName.createSimple(className)), methodCustomizers);
     }
 
     static class PanacheJpaEntityClassVisitor extends PanacheEntityClassVisitor<EntityField> {
 
         public PanacheJpaEntityClassVisitor(String className, ClassVisitor outputClassVisitor,
-                MetamodelInfo<EntityModel<EntityField>> modelInfo, ClassInfo panacheEntityBaseClassInfo) {
-            super(className, outputClassVisitor, modelInfo, panacheEntityBaseClassInfo);
+                MetamodelInfo<EntityModel<EntityField>> modelInfo,
+                ClassInfo panacheEntityBaseClassInfo,
+                ClassInfo entityInfo,
+                List<PanacheMethodCustomizer> methodCustomizers) {
+            super(className, outputClassVisitor, modelInfo, panacheEntityBaseClassInfo, entityInfo, methodCustomizers);
         }
 
         @Override

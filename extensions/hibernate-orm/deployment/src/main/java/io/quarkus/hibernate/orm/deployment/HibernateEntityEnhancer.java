@@ -4,13 +4,14 @@ import java.util.function.BiFunction;
 
 import org.hibernate.bytecode.enhance.spi.DefaultEnhancementContext;
 import org.hibernate.bytecode.enhance.spi.Enhancer;
+import org.hibernate.bytecode.enhance.spi.UnloadedField;
 import org.hibernate.bytecode.spi.BytecodeProvider;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Opcodes;
 
 import io.quarkus.deployment.QuarkusClassWriter;
+import net.bytebuddy.utility.OpenedClassReader;
 
 /**
  * Used to transform bytecode by registering to
@@ -26,32 +27,41 @@ import io.quarkus.deployment.QuarkusClassWriter;
  */
 public final class HibernateEntityEnhancer implements BiFunction<String, ClassVisitor, ClassVisitor> {
 
-    private final BytecodeProvider provider = new org.hibernate.bytecode.internal.bytebuddy.BytecodeProviderImpl();
+    private static final BytecodeProvider PROVIDER = new org.hibernate.bytecode.internal.bytebuddy.BytecodeProviderImpl();
 
     @Override
     public ClassVisitor apply(String className, ClassVisitor outputClassVisitor) {
         return new HibernateEnhancingClassVisitor(className, outputClassVisitor);
     }
 
-    private class HibernateEnhancingClassVisitor extends ClassVisitor {
+    private static class HibernateEnhancingClassVisitor extends ClassVisitor {
 
         private final String className;
         private final ClassVisitor outputClassVisitor;
         private final Enhancer enhancer;
 
         public HibernateEnhancingClassVisitor(String className, ClassVisitor outputClassVisitor) {
-            super(Opcodes.ASM7, new QuarkusClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS));
+            super(OpenedClassReader.ASM_API, new QuarkusClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS));
             this.className = className;
             this.outputClassVisitor = outputClassVisitor;
             //note that as getLoadingClassLoader is resolved immediately this can't be created until transform time
 
             DefaultEnhancementContext enhancementContext = new DefaultEnhancementContext() {
+
+                @Override
+                public boolean doBiDirectionalAssociationManagement(final UnloadedField field) {
+                    //Don't enable automatic association management as it's often too surprising.
+                    //Also, there's several cases in which its semantics are of unspecified,
+                    //such as what should happen when dealing with ordered collections.
+                    return false;
+                }
+
                 @Override
                 public ClassLoader getLoadingClassLoader() {
                     return Thread.currentThread().getContextClassLoader();
                 }
             };
-            this.enhancer = provider.getEnhancer(enhancementContext);
+            this.enhancer = PROVIDER.getEnhancer(enhancementContext);
         }
 
         @Override
@@ -82,7 +92,7 @@ public final class HibernateEntityEnhancer implements BiFunction<String, ClassVi
             }
 
         };
-        Enhancer enhancer = provider.getEnhancer(enhancementContext);
+        Enhancer enhancer = PROVIDER.getEnhancer(enhancementContext);
         return enhancer.enhance(className, bytes);
     }
 }

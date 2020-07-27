@@ -1,6 +1,5 @@
 package io.quarkus.elytron.security.runtime;
 
-import java.util.concurrent.CompletionStage;
 import java.util.function.Supplier;
 
 import javax.enterprise.context.ApplicationScoped;
@@ -17,6 +16,7 @@ import io.quarkus.security.identity.IdentityProvider;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.security.identity.request.TokenAuthenticationRequest;
 import io.quarkus.security.runtime.QuarkusSecurityIdentity;
+import io.smallrye.mutiny.Uni;
 
 /**
  *
@@ -27,7 +27,7 @@ import io.quarkus.security.runtime.QuarkusSecurityIdentity;
 @ApplicationScoped
 public class ElytronTokenIdentityProvider implements IdentityProvider<TokenAuthenticationRequest> {
 
-    private static Logger log = Logger.getLogger(ElytronTokenIdentityProvider.class);
+    private static final Logger log = Logger.getLogger(ElytronTokenIdentityProvider.class);
 
     @Inject
     SecurityDomain domain;
@@ -38,7 +38,7 @@ public class ElytronTokenIdentityProvider implements IdentityProvider<TokenAuthe
     }
 
     @Override
-    public CompletionStage<SecurityIdentity> authenticate(TokenAuthenticationRequest request,
+    public Uni<SecurityIdentity> authenticate(TokenAuthenticationRequest request,
             AuthenticationRequestContext context) {
         return context.runBlocking(new Supplier<SecurityIdentity>() {
             @Override
@@ -61,7 +61,7 @@ public class ElytronTokenIdentityProvider implements IdentityProvider<TokenAuthe
                     throw new RuntimeException(e);
                 } catch (SecurityException e) {
                     log.debug("Authentication failed", e);
-                    throw new AuthenticationFailedException();
+                    throw new AuthenticationFailedException(e);
                 }
             }
         });

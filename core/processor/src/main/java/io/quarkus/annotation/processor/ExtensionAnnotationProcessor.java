@@ -25,7 +25,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
@@ -66,9 +65,10 @@ import org.jboss.jdeparser.JSources;
 import org.jboss.jdeparser.JType;
 import org.jboss.jdeparser.JTypes;
 
-import io.quarkus.annotation.processor.generate_doc.ConfigDocItem;
+import io.quarkus.annotation.processor.generate_doc.ConfigDocGeneratedOutput;
 import io.quarkus.annotation.processor.generate_doc.ConfigDocItemScanner;
 import io.quarkus.annotation.processor.generate_doc.ConfigDocWriter;
+import io.quarkus.annotation.processor.generate_doc.DocGeneratorUtil;
 
 public class ExtensionAnnotationProcessor extends AbstractProcessor {
 
@@ -78,6 +78,7 @@ public class ExtensionAnnotationProcessor extends AbstractProcessor {
     private final ConfigDocItemScanner configDocItemScanner = new ConfigDocItemScanner();
     private final Set<String> generatedAccessors = new ConcurrentHashMap<String, Boolean>().keySet(Boolean.TRUE);
     private final Set<String> generatedJavaDocs = new ConcurrentHashMap<String, Boolean>().keySet(Boolean.TRUE);
+    private final boolean generateDocs = !Boolean.getBoolean("skipDocs");
 
     public ExtensionAnnotationProcessor() {
     }
@@ -236,12 +237,18 @@ public class ExtensionAnnotationProcessor extends AbstractProcessor {
         }
 
         try {
-            final Map<String, List<ConfigDocItem>> extensionConfigurationItems = configDocItemScanner
-                    .scanExtensionsConfigurationItems(javaDocProperties);
-            configDocWriter.writeExtensionConfigDocumentation(extensionConfigurationItems);
+            if (generateDocs) {
+                final Set<ConfigDocGeneratedOutput> outputs = configDocItemScanner
+                        .scanExtensionsConfigurationItems(javaDocProperties);
+                for (ConfigDocGeneratedOutput output : outputs) {
+                    DocGeneratorUtil.sort(output.getConfigDocItems()); // sort before writing
+                    configDocWriter.writeAllExtensionConfigDocumentation(output);
+                }
+            }
         } catch (IOException e) {
             processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "Failed to generate extension doc: " + e);
             return;
+
         }
     }
 
@@ -284,10 +291,6 @@ public class ExtensionAnnotationProcessor extends AbstractProcessor {
                 continue;
             }
 
-            for (VariableElement variableElement : i.getParameters()) {
-                configDocItemScanner.addProcessorClassMember(variableElement.asType().toString());
-            }
-
             final PackageElement pkg = processingEnv.getElementUtils().getPackageOf(clazz);
             if (pkg == null) {
                 processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
@@ -297,12 +300,6 @@ public class ExtensionAnnotationProcessor extends AbstractProcessor {
 
             final String binaryName = processingEnv.getElementUtils().getBinaryName(clazz).toString();
             if (processorClassNames.add(binaryName)) {
-                // new class
-                for (Element element : clazz.getEnclosedElements()) {
-                    if (element.getKind().isField()) {
-                        configDocItemScanner.addProcessorClassMember(element.asType().toString());
-                    }
-                }
                 recordConfigJavadoc(clazz);
                 generateAccessor(clazz);
                 final StringBuilder rbn = getRelativeBinaryName(clazz, new StringBuilder());
@@ -416,7 +413,9 @@ public class ExtensionAnnotationProcessor extends AbstractProcessor {
             if (groupClassNames.add(i.getQualifiedName().toString())) {
                 generateAccessor(i);
                 recordConfigJavadoc(i);
-                configDocItemScanner.addConfigGroups(i);
+                if (generateDocs) {
+                    configDocItemScanner.addConfigGroups(i);
+                }
             }
         }
     }
@@ -432,7 +431,9 @@ public class ExtensionAnnotationProcessor extends AbstractProcessor {
                 continue;
             }
 
-            configDocItemScanner.addConfigRoot(pkg, clazz);
+            if (generateDocs) {
+                configDocItemScanner.addConfigRoot(pkg, clazz);
+            }
 
             final String binaryName = processingEnv.getElementUtils().getBinaryName(clazz).toString();
             if (rootClassNames.add(binaryName)) {
@@ -499,7 +500,9 @@ public class ExtensionAnnotationProcessor extends AbstractProcessor {
         final JClassDef classDef = sourceFile._class(JMod.PUBLIC | JMod.FINAL, className);
         classDef.constructor(JMod.PRIVATE); // no construction
         final JAssignableExpr instanceName = JExprs.name(Constants.INSTANCE_SYM);
+        boolean isEnclosingClassPublic = clazz.getModifiers().contains(Modifier.PUBLIC);
         // iterate fields
+        boolean generationNeeded = false;
         for (VariableElement field : fieldsIn(clazz.getEnclosedElements())) {
             final Set<Modifier> mods = field.getModifiers();
             if (mods.contains(Modifier.PRIVATE) || mods.contains(Modifier.STATIC)) {
@@ -507,6 +510,24 @@ public class ExtensionAnnotationProcessor extends AbstractProcessor {
                 continue;
             }
             final TypeMirror fieldType = field.asType();
+            if (mods.contains(Modifier.PUBLIC) && isEnclosingClassPublic) {
+                // we don't need to generate a method accessor when the following conditions are met:
+                // 1) the field is public
+                // 2) the enclosing class is public
+                // 3) the class type of the field is public
+                if (fieldType instanceof DeclaredType) {
+                    final DeclaredType declaredType = (DeclaredType) fieldType;
+                    final TypeElement typeElement = (TypeElement) declaredType.asElement();
+                    if (typeElement.getModifiers().contains(Modifier.PUBLIC)) {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+
+            }
+            generationNeeded = true;
+
             final JType realType = JTypes.typeOf(fieldType);
             final JType publicType = fieldType instanceof PrimitiveType ? realType : JType.OBJECT;
 
@@ -523,35 +544,43 @@ public class ExtensionAnnotationProcessor extends AbstractProcessor {
             setter.body().assign(instanceName.cast(clazzType).field(fieldName),
                     (publicType.equals(realType) ? fieldExpr : fieldExpr.cast(realType)));
         }
-        // iterate constructors
-        for (ExecutableElement ctor : constructorsIn(clazz.getEnclosedElements())) {
-            if (ctor.getModifiers().contains(Modifier.PRIVATE)) {
-                // skip it
-                continue;
+
+        // we need to generate an accessor if the class isn't public
+        if (!isEnclosingClassPublic) {
+            for (ExecutableElement ctor : constructorsIn(clazz.getEnclosedElements())) {
+                if (ctor.getModifiers().contains(Modifier.PRIVATE)) {
+                    // skip it
+                    continue;
+                }
+                generationNeeded = true;
+                StringBuilder b = new StringBuilder();
+                for (VariableElement parameter : ctor.getParameters()) {
+                    b.append('_');
+                    b.append(parameter.asType().toString().replace('.', '_'));
+                }
+                String codedName = b.toString();
+                final JMethodDef ctorMethod = classDef.method(JMod.PUBLIC | JMod.STATIC, JType.OBJECT, "construct" + codedName);
+                final JCall ctorCall = clazzType._new();
+                for (VariableElement parameter : ctor.getParameters()) {
+                    final TypeMirror paramType = parameter.asType();
+                    final JType realType = JTypes.typeOf(paramType);
+                    final JType publicType = paramType instanceof PrimitiveType ? realType : JType.OBJECT;
+                    final String name = parameter.getSimpleName().toString();
+                    ctorMethod.param(publicType, name);
+                    final JAssignableExpr nameExpr = JExprs.name(name);
+                    ctorCall.arg(publicType.equals(realType) ? nameExpr : nameExpr.cast(realType));
+                }
+                ctorMethod.body()._return(ctorCall);
             }
-            StringBuilder b = new StringBuilder();
-            for (VariableElement parameter : ctor.getParameters()) {
-                b.append('_');
-                b.append(parameter.asType().toString().replace('.', '_'));
-            }
-            String codedName = b.toString();
-            final JMethodDef ctorMethod = classDef.method(JMod.PUBLIC | JMod.STATIC, JType.OBJECT, "construct" + codedName);
-            final JCall ctorCall = clazzType._new();
-            for (VariableElement parameter : ctor.getParameters()) {
-                final TypeMirror paramType = parameter.asType();
-                final JType realType = JTypes.typeOf(paramType);
-                final JType publicType = paramType instanceof PrimitiveType ? realType : JType.OBJECT;
-                final String name = parameter.getSimpleName().toString();
-                ctorMethod.param(publicType, name);
-                final JAssignableExpr nameExpr = JExprs.name(name);
-                ctorCall.arg(publicType.equals(realType) ? nameExpr : nameExpr.cast(realType));
-            }
-            ctorMethod.body()._return(ctorCall);
         }
-        try {
-            sources.writeSources();
-        } catch (IOException e) {
-            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "Failed to generate source file: " + e, clazz);
+
+        // if no constructor or field access is needed, don't generate anything
+        if (generationNeeded) {
+            try {
+                sources.writeSources();
+            } catch (IOException e) {
+                processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "Failed to generate source file: " + e, clazz);
+            }
         }
     }
 

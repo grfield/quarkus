@@ -1,10 +1,8 @@
 package io.quarkus.infinispan.client.runtime;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.lang.annotation.Annotation;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.Scanner;
 import java.util.Set;
@@ -12,6 +10,7 @@ import java.util.Set;
 import javax.annotation.PreDestroy;
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.context.spi.CreationalContext;
+import javax.enterprise.inject.Instance;
 import javax.enterprise.inject.Produces;
 import javax.enterprise.inject.spi.Bean;
 import javax.enterprise.inject.spi.BeanManager;
@@ -27,7 +26,6 @@ import org.infinispan.client.hotrod.impl.ConfigurationProperties;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.client.hotrod.marshall.ProtoStreamMarshaller;
-import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.Util;
 import org.infinispan.counter.api.CounterManager;
@@ -35,8 +33,8 @@ import org.infinispan.protostream.BaseMarshaller;
 import org.infinispan.protostream.FileDescriptorSource;
 import org.infinispan.protostream.SerializationContext;
 import org.infinispan.protostream.SerializationContextInitializer;
+import org.infinispan.protostream.WrappedMessage;
 import org.infinispan.query.remote.client.ProtobufMetadataManagerConstants;
-import org.infinispan.query.remote.client.impl.MarshallerRegistration;
 
 /**
  * Produces a configured remote cache manager instance
@@ -51,13 +49,10 @@ public class InfinispanClientProducer {
     @Inject
     private BeanManager beanManager;
 
-    private Properties properties;
-    private RemoteCacheManager cacheManager;
-    private InfinispanClientRuntimeConfig infinispanClientRuntimeConfig;
-
-    public void setRuntimeConfig(InfinispanClientRuntimeConfig infinispanClientConfigRuntime) {
-        this.infinispanClientRuntimeConfig = infinispanClientConfigRuntime;
-    }
+    private volatile Properties properties;
+    private volatile RemoteCacheManager cacheManager;
+    @Inject
+    private Instance<InfinispanClientRuntimeConfig> infinispanClientRuntimeConfig;
 
     private void initialize() {
         log.debug("Initializing CacheManager");
@@ -126,14 +121,14 @@ public class InfinispanClientProducer {
      * @param properties the properties to be updated for querying
      */
     public static void handleProtoStreamRequirements(Properties properties) {
-        // We only apply this if we are substrate in build time to apply to the properties
+        // We only apply this if we are in native mode in build time to apply to the properties
         // Note that the other half is done in QuerySubstitutions.SubstituteMarshallerRegistration class
         // Note that the registration of these files are done twice in normal VM mode
         // (once during init and once at runtime)
-        properties.put(InfinispanClientProducer.PROTOBUF_FILE_PREFIX + MarshallerRegistration.QUERY_PROTO_RES,
-                getContents(MarshallerRegistration.QUERY_PROTO_RES));
-        properties.put(InfinispanClientProducer.PROTOBUF_FILE_PREFIX + MarshallerRegistration.MESSAGE_PROTO_RES,
-                getContents(MarshallerRegistration.MESSAGE_PROTO_RES));
+        properties.put(InfinispanClientProducer.PROTOBUF_FILE_PREFIX + WrappedMessage.PROTO_FILE,
+                getContents("/" + WrappedMessage.PROTO_FILE));
+        String queryProtoFile = "org/infinispan/query/remote/client/query.proto";
+        properties.put(InfinispanClientProducer.PROTOBUF_FILE_PREFIX + queryProtoFile, getContents("/" + queryProtoFile));
     }
 
     /**
@@ -166,14 +161,40 @@ public class InfinispanClientProducer {
             }
             builder.marshaller((Marshaller) marshallerInstance);
         }
+        InfinispanClientRuntimeConfig infinispanClientRuntimeConfig = this.infinispanClientRuntimeConfig.get();
 
-        // Override serverList property value at runtime if such configuration exists
-        if (infinispanClientRuntimeConfig != null) {
-            Optional<String> runtimeServerList = infinispanClientRuntimeConfig.serverList;
-            if (runtimeServerList.isPresent()) {
-                properties.put(ConfigurationProperties.SERVER_LIST, runtimeServerList.get());
-            }
-        }
+        infinispanClientRuntimeConfig.serverList
+                .ifPresent(v -> properties.put(ConfigurationProperties.SERVER_LIST, v));
+
+        infinispanClientRuntimeConfig.clientIntelligence
+                .ifPresent(v -> properties.put(ConfigurationProperties.CLIENT_INTELLIGENCE, v));
+
+        infinispanClientRuntimeConfig.useAuth
+                .ifPresent(v -> properties.put(ConfigurationProperties.USE_AUTH, v));
+        infinispanClientRuntimeConfig.authUsername
+                .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_USERNAME, v));
+        infinispanClientRuntimeConfig.authPassword
+                .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_PASSWORD, v));
+        infinispanClientRuntimeConfig.authRealm
+                .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_REALM, v));
+        infinispanClientRuntimeConfig.authServerName
+                .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_SERVER_NAME, v));
+        infinispanClientRuntimeConfig.authClientSubject
+                .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_CLIENT_SUBJECT, v));
+        infinispanClientRuntimeConfig.authCallbackHandler
+                .ifPresent(v -> properties.put(ConfigurationProperties.AUTH_CALLBACK_HANDLER, v));
+
+        infinispanClientRuntimeConfig.saslMechanism
+                .ifPresent(v -> properties.put(ConfigurationProperties.SASL_MECHANISM, v));
+
+        infinispanClientRuntimeConfig.trustStore
+                .ifPresent(v -> properties.put(ConfigurationProperties.TRUST_STORE_FILE_NAME, v));
+
+        infinispanClientRuntimeConfig.trustStorePassword
+                .ifPresent(v -> properties.put(ConfigurationProperties.TRUST_STORE_PASSWORD, v));
+
+        infinispanClientRuntimeConfig.trustStoreType
+                .ifPresent(v -> properties.put(ConfigurationProperties.TRUST_STORE_TYPE, v));
 
         builder.withProperties(properties);
 
@@ -188,11 +209,7 @@ public class InfinispanClientProducer {
                 .get(InfinispanClientProducer.PROTOBUF_INITIALIZERS);
         if (initializers != null) {
             initializers.forEach(sci -> {
-                try {
-                    sci.registerSchema(serializationContext);
-                } catch (IOException e) {
-                    throw new CacheConfigurationException(e);
-                }
+                sci.registerSchema(serializationContext);
                 sci.registerMarshallers(serializationContext);
             });
         }
@@ -245,25 +262,15 @@ public class InfinispanClientProducer {
         }
     }
 
-    @SuppressWarnings("deprecation")
     @io.quarkus.infinispan.client.Remote
-    @io.quarkus.infinispan.client.runtime.Remote
     @Produces
     public <K, V> RemoteCache<K, V> getRemoteCache(InjectionPoint injectionPoint, RemoteCacheManager cacheManager) {
         Set<Annotation> annotationSet = injectionPoint.getQualifiers();
 
-        // Deal with the regular annotation first
         final io.quarkus.infinispan.client.Remote remote = getRemoteAnnotation(annotationSet);
 
         if (remote != null && !remote.value().isEmpty()) {
             return cacheManager.getCache(remote.value());
-        }
-
-        // Then deal with the deprecated one
-        final io.quarkus.infinispan.client.runtime.Remote deprecatedRemote = getDeprecatedRemoteAnnotation(annotationSet);
-
-        if (deprecatedRemote != null && !deprecatedRemote.value().isEmpty()) {
-            return cacheManager.getCache(deprecatedRemote.value());
         }
 
         return cacheManager.getCache();
@@ -276,6 +283,7 @@ public class InfinispanClientProducer {
 
     @Produces
     public synchronized RemoteCacheManager remoteCacheManager() {
+        //TODO: should this just be application scoped?
         if (cacheManager != null) {
             return cacheManager;
         }
@@ -297,21 +305,6 @@ public class InfinispanClientProducer {
         for (Annotation annotation : annotationSet) {
             if (annotation instanceof io.quarkus.infinispan.client.Remote) {
                 return (io.quarkus.infinispan.client.Remote) annotation;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Retrieves the deprecated {@link Remote} annotation instance from the set
-     *
-     * @param annotationSet the annotation set.
-     * @return the {@link Remote} annotation instance or {@code null} if not found.
-     */
-    private io.quarkus.infinispan.client.runtime.Remote getDeprecatedRemoteAnnotation(Set<Annotation> annotationSet) {
-        for (Annotation annotation : annotationSet) {
-            if (annotation instanceof io.quarkus.infinispan.client.runtime.Remote) {
-                return (io.quarkus.infinispan.client.runtime.Remote) annotation;
             }
         }
         return null;

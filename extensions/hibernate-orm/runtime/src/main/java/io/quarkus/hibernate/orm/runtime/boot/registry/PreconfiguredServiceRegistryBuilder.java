@@ -1,7 +1,5 @@
 package io.quarkus.hibernate.orm.runtime.boot.registry;
 
-import static org.hibernate.internal.HEMLogging.messageLogger;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -15,16 +13,12 @@ import org.hibernate.boot.registry.internal.StandardServiceRegistryImpl;
 import org.hibernate.boot.registry.selector.internal.StrategySelectorImpl;
 import org.hibernate.engine.config.internal.ConfigurationServiceInitiator;
 import org.hibernate.engine.jdbc.batch.internal.BatchBuilderInitiator;
-import org.hibernate.engine.jdbc.connections.internal.ConnectionProviderInitiator;
 import org.hibernate.engine.jdbc.connections.internal.MultiTenantConnectionProviderInitiator;
 import org.hibernate.engine.jdbc.cursor.internal.RefCursorSupportInitiator;
 import org.hibernate.engine.jdbc.internal.JdbcServicesInitiator;
-import org.hibernate.engine.jndi.internal.JndiServiceInitiator;
 import org.hibernate.event.internal.EntityCopyObserverFactoryInitiator;
 import org.hibernate.hql.internal.QueryTranslatorFactoryInitiator;
 import org.hibernate.integrator.spi.Integrator;
-import org.hibernate.internal.EntityManagerMessageLogger;
-import org.hibernate.internal.util.config.ConfigurationHelper;
 import org.hibernate.persister.internal.PersisterClassResolverInitiator;
 import org.hibernate.persister.internal.PersisterFactoryInitiator;
 import org.hibernate.property.access.internal.PropertyAccessStrategyResolverInitiator;
@@ -35,7 +29,11 @@ import org.hibernate.service.internal.SessionFactoryServiceRegistryFactoryInitia
 import org.hibernate.tool.hbm2ddl.ImportSqlCommandExtractorInitiator;
 import org.hibernate.tool.schema.internal.SchemaManagementToolInitiator;
 
+import io.quarkus.hibernate.orm.runtime.customized.DisabledBytecodeProviderInitiator;
+import io.quarkus.hibernate.orm.runtime.customized.QuarkusConnectionProviderInitiator;
+import io.quarkus.hibernate.orm.runtime.customized.QuarkusJndiServiceInitiator;
 import io.quarkus.hibernate.orm.runtime.customized.QuarkusJtaPlatformInitiator;
+import io.quarkus.hibernate.orm.runtime.customized.QuarkusRuntimeProxyFactoryFactoryInitiator;
 import io.quarkus.hibernate.orm.runtime.recording.RecordedState;
 import io.quarkus.hibernate.orm.runtime.service.CfgXmlAccessServiceInitiatorQuarkus;
 import io.quarkus.hibernate.orm.runtime.service.DisabledJMXInitiator;
@@ -54,8 +52,6 @@ import io.quarkus.hibernate.orm.runtime.service.QuarkusRegionFactoryInitiator;
  */
 public class PreconfiguredServiceRegistryBuilder {
 
-    private static final EntityManagerMessageLogger LOG = messageLogger(PreconfiguredServiceRegistryBuilder.class);
-
     private final Map configurationValues = new HashMap();
     private final List<StandardServiceInitiator> initiators;
     private final List<ProvidedService> providedServices = new ArrayList<ProvidedService>();
@@ -63,10 +59,17 @@ public class PreconfiguredServiceRegistryBuilder {
     private final StandardServiceRegistryImpl destroyedRegistry;
 
     public PreconfiguredServiceRegistryBuilder(RecordedState rs) {
+        checkIsNotReactive(rs);
         this.initiators = buildQuarkusServiceInitiatorList(rs);
         this.integrators = rs.getIntegrators();
-        this.destroyedRegistry = (StandardServiceRegistryImpl) rs.getMetadata().getMetadataBuildingOptions()
+        this.destroyedRegistry = (StandardServiceRegistryImpl) rs.getMetadata().getOriginalMetadata()
+                .getMetadataBuildingOptions()
                 .getServiceRegistry();
+    }
+
+    private void checkIsNotReactive(RecordedState rs) {
+        if (rs.isReactive())
+            throw new IllegalStateException("Booting a blocking Hibernate ORM serviceregistry on a Reactive RecordedState!");
     }
 
     public PreconfiguredServiceRegistryBuilder applySetting(String settingName, Object value) {
@@ -76,6 +79,11 @@ public class PreconfiguredServiceRegistryBuilder {
 
     public PreconfiguredServiceRegistryBuilder addInitiator(StandardServiceInitiator initiator) {
         initiators.add(initiator);
+        return this;
+    }
+
+    public PreconfiguredServiceRegistryBuilder addIntegrator(Integrator integrator) {
+        integrators.add(integrator);
         return this;
     }
 
@@ -96,7 +104,6 @@ public class PreconfiguredServiceRegistryBuilder {
 
         final Map settingsCopy = new HashMap();
         settingsCopy.putAll(configurationValues);
-        ConfigurationHelper.resolvePlaceHolders(settingsCopy);
 
         destroyedRegistry.resetAndReactivate(bootstrapServiceRegistry, initiators, providedServices, settingsCopy);
         return destroyedRegistry;
@@ -137,6 +144,12 @@ public class PreconfiguredServiceRegistryBuilder {
     private static List<StandardServiceInitiator> buildQuarkusServiceInitiatorList(RecordedState rs) {
         final ArrayList<StandardServiceInitiator> serviceInitiators = new ArrayList<StandardServiceInitiator>();
 
+        //Enforces no bytecode enhancement will happen at runtime:
+        serviceInitiators.add(DisabledBytecodeProviderInitiator.INSTANCE);
+
+        //Use a custom ProxyFactoryFactory which is able to use the class definitions we already created:
+        serviceInitiators.add(new QuarkusRuntimeProxyFactoryFactoryInitiator(rs));
+
         // Replaces org.hibernate.boot.cfgxml.internal.CfgXmlAccessServiceInitiator :
         // not used
         // (Original disabled)
@@ -157,7 +170,8 @@ public class PreconfiguredServiceRegistryBuilder {
         // Replaces JdbcEnvironmentInitiator.INSTANCE :
         serviceInitiators.add(new QuarkusJdbcEnvironmentInitiator(rs.getDialect()));
 
-        serviceInitiators.add(JndiServiceInitiator.INSTANCE);
+        // Custom one!
+        serviceInitiators.add(QuarkusJndiServiceInitiator.INSTANCE);
 
         // Custom one!
         serviceInitiators.add(DisabledJMXInitiator.INSTANCE);
@@ -165,7 +179,8 @@ public class PreconfiguredServiceRegistryBuilder {
         serviceInitiators.add(PersisterClassResolverInitiator.INSTANCE);
         serviceInitiators.add(PersisterFactoryInitiator.INSTANCE);
 
-        serviceInitiators.add(ConnectionProviderInitiator.INSTANCE);
+        // Custom one!
+        serviceInitiators.add(QuarkusConnectionProviderInitiator.INSTANCE);
         serviceInitiators.add(MultiTenantConnectionProviderInitiator.INSTANCE);
 
         // Disabled: Dialect is injected explicitly

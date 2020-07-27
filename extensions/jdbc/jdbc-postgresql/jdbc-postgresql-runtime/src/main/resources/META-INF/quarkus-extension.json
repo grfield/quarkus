@@ -1,9 +1,0 @@
-
-{
-    "name": "JDBC Driver - PostgreSQL",
-    "labels": [
-        "jdbc-postgresql",
-        "jdbc",
-        "postgresql"
-    ]
-}

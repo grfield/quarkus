@@ -25,6 +25,7 @@ final class JavaDocParser {
     private static final Pattern REPLACE_WINDOWS_EOL = Pattern.compile("\r\n");
     private static final Pattern REPLACE_MACOS_EOL = Pattern.compile("\r");
 
+    private static final String BACKTICK = "`";
     private static final String HASH = "#";
     private static final String STAR = "*";
     private static final String S_NODE = "s";
@@ -33,6 +34,7 @@ final class JavaDocParser {
     private static final String LINK_NODE = "a";
     private static final String BOLD_NODE = "b";
     private static final String BIG_NODE = "big";
+    private static final String CODE_NODE = "code";
     private static final String DEL_NODE = "del";
     private static final String ITALICS_NODE = "i";
     private static final String TEXT_NODE = "#text";
@@ -48,8 +50,6 @@ final class JavaDocParser {
     private static final String ORDERED_LIST_NODE = "ol";
     private static final String SUPER_SCRIPT_NODE = "sup";
     private static final String UN_ORDERED_LIST_NODE = "ul";
-
-    private static final String INLINE_JAVA_DOC_TAG_FORMAT = "`%s`";
 
     private static final String BIG_ASCIDOC_STYLE = "[.big]";
     private static final String LINK_ATTRIBUTE_FORMAT = "[%s]";
@@ -151,14 +151,18 @@ final class JavaDocParser {
                     case VALUE:
                     case LITERAL:
                     case SYSTEM_PROPERTY:
-                        sb.append(String.format(INLINE_JAVA_DOC_TAG_FORMAT, content));
+                        sb.append('`');
+                        appendEscapedAsciiDoc(sb, content);
+                        sb.append('`');
                         break;
                     case LINK:
                     case LINKPLAIN:
                         if (content.startsWith(HASH)) {
                             content = hyphenate(content.substring(1));
                         }
-                        sb.append(String.format(INLINE_JAVA_DOC_TAG_FORMAT, content));
+                        sb.append('`');
+                        appendEscapedAsciiDoc(sb, content);
+                        sb.append('`');
                         break;
                     default:
                         sb.append(content);
@@ -193,10 +197,16 @@ final class JavaDocParser {
                     break;
                 case LINK_NODE:
                     final String link = childNode.attr(HREF_ATTRIBUTE);
+                    sb.append("link:");
                     sb.append(link);
                     final StringBuilder caption = new StringBuilder();
                     appendHtml(caption, childNode);
                     sb.append(String.format(LINK_ATTRIBUTE_FORMAT, caption.toString().trim()));
+                    break;
+                case CODE_NODE:
+                    sb.append(BACKTICK);
+                    appendHtml(sb, childNode);
+                    sb.append(BACKTICK);
                     break;
                 case BOLD_NODE:
                 case EMPHASIS_NODE:
@@ -249,14 +259,53 @@ final class JavaDocParser {
                     sb.append(NEW_LINE);
                     break;
                 case TEXT_NODE:
-                    final TextNode textNode = (TextNode) childNode;
-                    sb.append(textNode.text());
+                    appendEscapedAsciiDoc(sb, ((TextNode) childNode).text());
                     break;
                 default:
                     appendHtml(sb, childNode);
                     break;
             }
         }
+    }
+
+    static StringBuilder appendEscapedAsciiDoc(StringBuilder sb, String text) {
+        boolean escaping = false;
+        for (int i = 0; i < text.length(); i++) {
+            final char ch = text.charAt(i);
+            switch (ch) {
+                case '#':
+                case '*':
+                case '\\':
+                case '{':
+                case '}':
+                case '[':
+                case ']':
+                case '|':
+                    if (!escaping) {
+                        sb.append("++");
+                        escaping = true;
+                    }
+                    sb.append(ch);
+                    break;
+                case '+':
+                    if (escaping) {
+                        sb.append("++");
+                        escaping = false;
+                    }
+                    sb.append("{plus}");
+                    break;
+                default:
+                    if (escaping) {
+                        sb.append("++");
+                        escaping = false;
+                    }
+                    sb.append(ch);
+            }
+        }
+        if (escaping) {
+            sb.append("++");
+        }
+        return sb;
     }
 
     static class SectionHolder {

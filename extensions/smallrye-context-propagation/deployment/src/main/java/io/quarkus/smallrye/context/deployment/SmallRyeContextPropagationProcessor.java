@@ -7,16 +7,17 @@ import java.util.List;
 import org.eclipse.microprofile.context.spi.ContextManagerExtension;
 import org.eclipse.microprofile.context.spi.ThreadContextProvider;
 import org.jboss.logging.Logger;
-import org.jboss.resteasy.context.ResteasyContextProvider;
 
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.BeanContainerBuildItem;
+import io.quarkus.deployment.Feature;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.ExecutorBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
+import io.quarkus.deployment.builditem.ManagedExecutorInitializedBuildItem;
 import io.quarkus.deployment.util.ServiceUtil;
 import io.quarkus.smallrye.context.runtime.SmallRyeContextPropagationProvider;
 import io.quarkus.smallrye.context.runtime.SmallRyeContextPropagationRecorder;
@@ -41,13 +42,6 @@ class SmallRyeContextPropagationProcessor {
         List<ContextManagerExtension> discoveredExtensions = new ArrayList<>();
         for (Class<?> provider : ServiceUtil.classesNamedIn(Thread.currentThread().getContextClassLoader(),
                 "META-INF/services/" + ThreadContextProvider.class.getName())) {
-            if (provider.equals(ResteasyContextProvider.class)) {
-                try {
-                    Class.forName("org.jboss.resteasy.core.ResteasyContext");
-                } catch (ClassNotFoundException e) {
-                    continue; // resteasy is not being used so ditch this context provider
-                }
-            }
             try {
                 discoveredProviders.add((ThreadContextProvider) provider.newInstance());
             } catch (InstantiationException | IllegalAccessException e) {
@@ -73,9 +67,11 @@ class SmallRyeContextPropagationProcessor {
     void build(SmallRyeContextPropagationRecorder recorder,
             BeanContainerBuildItem beanContainer,
             ExecutorBuildItem executorBuildItem,
-            BuildProducer<FeatureBuildItem> feature) {
-        feature.produce(new FeatureBuildItem(FeatureBuildItem.SMALLRYE_CONTEXT_PROPAGATION));
+            BuildProducer<FeatureBuildItem> feature,
+            BuildProducer<ManagedExecutorInitializedBuildItem> managedExecutorInitialized) {
+        feature.produce(new FeatureBuildItem(Feature.SMALLRYE_CONTEXT_PROPAGATION));
 
         recorder.configureRuntime(beanContainer.getValue(), executorBuildItem.getExecutorProxy());
+        managedExecutorInitialized.produce(new ManagedExecutorInitializedBuildItem());
     }
 }

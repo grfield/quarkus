@@ -11,7 +11,6 @@ import io.fabric8.kubernetes.api.model.PodListBuilder;
 import io.fabric8.kubernetes.client.server.mock.KubernetesMockServer;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
-import io.quarkus.test.kubernetes.client.KubernetesMockServerTestResource;
 import io.quarkus.test.kubernetes.client.MockServer;
 import io.restassured.RestAssured;
 
@@ -19,7 +18,7 @@ import io.restassured.RestAssured;
  * KubernetesClientTest.TestResource contains the entire process of setting up the Mock Kubernetes API Server
  * It has to live there otherwise the Kubernetes client in native mode won't be able to locate the mock API Server
  */
-@QuarkusTestResource(KubernetesMockServerTestResource.class)
+@QuarkusTestResource(CustomKubernetesMockServerTestResource.class)
 @QuarkusTest
 public class KubernetesClientTest {
 
@@ -52,13 +51,13 @@ public class KubernetesClientTest {
 
         // same here, the content itself doesn't really matter
         mockServer.expect().post().withPath("/api/v1/namespaces/test/pods").andReturn(201, new PodBuilder()
-                .withNewMetadata().withResourceVersion("12345").and().build()).once();
+                .withNewMetadata().withResourceVersion("54321").and().build()).once();
     }
 
     @Test
     public void testInteractionWithAPIServer() {
         RestAssured.when().get("/pod/test").then()
-                .body("size()", is(2));
+                .body("size()", is(2)).body(containsString("pod1"), containsString("pod2"));
 
         RestAssured.when().delete("/pod/test").then()
                 .statusCode(204);
@@ -67,7 +66,7 @@ public class KubernetesClientTest {
                 .body(containsString("value1"));
 
         RestAssured.when().post("/pod/test").then()
-                .body(containsString("12345"));
+                .body(containsString("54321"));
     }
 
 }

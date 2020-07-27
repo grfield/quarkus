@@ -1,8 +1,10 @@
 package io.quarkus.hibernate.orm.deployment;
 
+import java.nio.charset.Charset;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import io.quarkus.runtime.annotations.ConfigDocSection;
@@ -53,7 +55,7 @@ public class HibernateOrmConfig {
      *   Pass an explicit value to force Hibernate ORM to execute the SQL import file.
      *
      * If you need different SQL statements between dev mode, test (`@QuarkusTest`) and in production, use Quarkus
-     * https://quarkus.io/guides/application-configuration-guide#configuration-profiles[configuration profiles facility].
+     * https://quarkus.io/guides/config#configuration-profiles[configuration profiles facility].
      *
      * [source,property]
      * .application.properties
@@ -72,7 +74,7 @@ public class HibernateOrmConfig {
      * @asciidoclet
      */
     // @formatter:on
-    @ConfigItem(defaultValueDocumentation = "import.sql (DEV,TEST)")
+    @ConfigItem(defaultValueDocumentation = "import.sql in DEV, TEST ; no-file otherwise")
     public Optional<String> sqlLoadScript;
 
     /**
@@ -84,6 +86,40 @@ public class HibernateOrmConfig {
      */
     @ConfigItem(defaultValue = "-1")
     public int batchFetchSize;
+
+    /**
+     * Pluggable strategy contract for applying physical naming rules for database object names.
+     *
+     * Class name of the Hibernate PhysicalNamingStrategy implementation
+     */
+    @ConfigItem
+    public Optional<String> physicalNamingStrategy;
+
+    /**
+     * Pluggable strategy for applying implicit naming rules when an explicit name is not given.
+     *
+     * Class name of the Hibernate ImplicitNamingStrategy implementation
+     */
+    @ConfigItem
+    public Optional<String> implicitNamingStrategy;
+
+    /**
+     * Defines the method for multi-tenancy (DATABASE, NONE, SCHEMA). The complete list of allowed values is available in the
+     * https://docs.jboss.org/hibernate/stable/orm/javadocs/org/hibernate/MultiTenancyStrategy.html[Hibernate ORM JavaDoc].
+     * The type DISCRIMINATOR is currently not supported. The default value is NONE (no multi-tenancy).
+     *
+     * @asciidoclet
+     */
+    @ConfigItem
+    public Optional<String> multitenant;
+
+    /**
+     * Defines the name of the data source to use in case of SCHEMA approach. The default data source will be used if not set.
+     *
+     * @asciidoclet
+     */
+    @ConfigItem
+    public Optional<String> multitenantSchemaDatasource;
 
     /**
      * Query related configuration.
@@ -120,21 +156,41 @@ public class HibernateOrmConfig {
     public Map<String, HibernateOrmConfigCache> cache;
 
     /**
-     * Whether statistics collection is enabled.
+     * Whether statistics collection is enabled. If 'metrics.enabled' is true, then the default here is
+     * considered true, otherwise the default is false.
      */
-    @ConfigItem(defaultValue = "false")
-    public boolean statistics;
+    @ConfigItem
+    public Optional<Boolean> statistics;
+
+    /**
+     * Whether or not metrics are published in case the smallrye-metrics extension is present (default to false).
+     */
+    @ConfigItem(name = "metrics.enabled")
+    public boolean metricsEnabled;
+
+    /**
+     * The default in Quarkus is for 2nd level caching to be enabled,
+     * and a good implementation is already integrated for you.
+     * <p>
+     * Just cherry-pick which entities should be using the cache.
+     * <p>
+     * Set this to false to disable all 2nd level caches.
+     */
+    @ConfigItem(defaultValue = "true")
+    public boolean secondLevelCachingEnabled;
 
     public boolean isAnyPropertySet() {
         return dialect.isPresent() ||
                 dialectStorageEngine.isPresent() ||
                 sqlLoadScript.isPresent() ||
                 batchFetchSize > 0 ||
-                statistics ||
+                statistics.isPresent() ||
                 query.isAnyPropertySet() ||
                 database.isAnyPropertySet() ||
                 jdbc.isAnyPropertySet() ||
                 log.isAnyPropertySet() ||
+                multitenant.isPresent() ||
+                multitenantSchemaDatasource.isPresent() ||
                 !cache.isEmpty();
     }
 
@@ -165,6 +221,8 @@ public class HibernateOrmConfig {
     @ConfigGroup
     public static class HibernateOrmConfigDatabase {
 
+        private static final String DEFAULT_CHARSET = "UTF-8";
+
         /**
          * Select whether the database schema is generated or not.
          *
@@ -178,7 +236,7 @@ public class HibernateOrmConfig {
         /**
          * Whether we should stop on the first error when applying the schema.
          */
-        @ConfigItem(name = "generation.halt-on-error", defaultValue = "false")
+        @ConfigItem(name = "generation.halt-on-error")
         public boolean generationHaltOnError;
 
         /**
@@ -195,14 +253,23 @@ public class HibernateOrmConfig {
 
         /**
          * The charset of the database.
+         * <p>
+         * Used for DDL generation and also for the SQL import scripts.
+         */
+        @ConfigItem(defaultValue = "UTF-8")
+        public Charset charset;
+
+        /**
+         * Whether Hibernate should quote all identifiers.
          */
         @ConfigItem
-        public Optional<String> charset;
+        public boolean globallyQuotedIdentifiers;
 
         public boolean isAnyPropertySet() {
             return !"none".equals(generation) || defaultCatalog.isPresent() || defaultSchema.isPresent()
                     || generationHaltOnError
-                    || charset.isPresent();
+                    || !DEFAULT_CHARSET.equals(charset.name())
+                    || globallyQuotedIdentifiers;
         }
     }
 
@@ -219,13 +286,13 @@ public class HibernateOrmConfig {
          * How many rows are fetched at a time by the JDBC driver.
          */
         @ConfigItem
-        public Optional<Integer> statementFetchSize;
+        public OptionalInt statementFetchSize;
 
         /**
          * The number of updates (inserts, updates and deletes) that are sent by the JDBC driver at one time for execution.
          */
         @ConfigItem
-        public Optional<Integer> statementBatchSize;
+        public OptionalInt statementBatchSize;
 
         public boolean isAnyPropertySet() {
             return timezone.isPresent() || statementFetchSize.isPresent() || statementBatchSize.isPresent();
@@ -240,8 +307,16 @@ public class HibernateOrmConfig {
          * <p>
          * Setting it to true is obviously not recommended in production.
          */
-        @ConfigItem(defaultValue = "false")
+        @ConfigItem
         public boolean sql;
+
+        /**
+         * Logs SQL bind parameter.
+         * <p>
+         * Setting it to true is obviously not recommended in production.
+         */
+        @ConfigItem
+        public boolean bindParam;
 
         /**
          * Whether JDBC warnings should be collected and logged.
@@ -250,7 +325,7 @@ public class HibernateOrmConfig {
         public Optional<Boolean> jdbcWarnings;
 
         public boolean isAnyPropertySet() {
-            return sql || jdbcWarnings.isPresent();
+            return sql || bindParam || jdbcWarnings.isPresent();
         }
     }
 

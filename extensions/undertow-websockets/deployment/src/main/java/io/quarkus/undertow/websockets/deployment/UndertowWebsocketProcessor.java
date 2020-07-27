@@ -4,6 +4,7 @@ import java.lang.reflect.Modifier;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.websocket.ClientEndpoint;
@@ -12,6 +13,7 @@ import javax.websocket.ContainerProvider;
 import javax.websocket.Endpoint;
 import javax.websocket.server.ServerApplicationConfig;
 import javax.websocket.server.ServerEndpoint;
+import javax.websocket.server.ServerEndpointConfig;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationValue;
@@ -21,6 +23,7 @@ import org.jboss.jandex.IndexView;
 import org.jboss.jandex.Type;
 
 import io.quarkus.arc.deployment.BeanDefiningAnnotationBuildItem;
+import io.quarkus.deployment.Feature;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
@@ -29,11 +32,12 @@ import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.ExecutorBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.ServiceStartBuildItem;
-import io.quarkus.deployment.builditem.substrate.ReflectiveClassBuildItem;
-import io.quarkus.deployment.builditem.substrate.ServiceProviderBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ServiceProviderBuildItem;
 import io.quarkus.runtime.annotations.ConfigRoot;
 import io.quarkus.undertow.deployment.ServletContextAttributeBuildItem;
 import io.quarkus.undertow.websockets.runtime.UndertowWebsocketRecorder;
+import io.undertow.websockets.jsr.DefaultContainerConfigurator;
 import io.undertow.websockets.jsr.JsrWebSocketFilter;
 import io.undertow.websockets.jsr.UndertowContainerProvider;
 import io.undertow.websockets.jsr.WebSocketDeploymentInfo;
@@ -47,7 +51,13 @@ public class UndertowWebsocketProcessor {
 
     @BuildStep
     void holdConfig(BuildProducer<FeatureBuildItem> feature, HotReloadConfig hotReloadConfig) {
-        feature.produce(new FeatureBuildItem(FeatureBuildItem.UNDERTOW_WEBSOCKETS));
+        feature.produce(new FeatureBuildItem(Feature.UNDERTOW_WEBSOCKETS));
+    }
+
+    @BuildStep
+    ServiceProviderBuildItem registerConfiguratorServiceProvider() {
+        return new ServiceProviderBuildItem(ServerEndpointConfig.Configurator.class.getName(),
+                DefaultContainerConfigurator.class.getName());
     }
 
     @BuildStep
@@ -83,7 +93,8 @@ public class UndertowWebsocketProcessor {
     public ServletContextAttributeBuildItem deploy(final CombinedIndexBuildItem indexBuildItem,
             UndertowWebsocketRecorder recorder,
             BuildProducer<ReflectiveClassBuildItem> reflection,
-            List<AnnotatedWebsocketEndpointBuildItem> annotatedEndpoints) throws Exception {
+            List<AnnotatedWebsocketEndpointBuildItem> annotatedEndpoints,
+            WebsocketConfig websocketConfig) throws Exception {
 
         final Set<String> endpoints = new HashSet<>();
         final Set<String> config = new HashSet<>();
@@ -124,7 +135,8 @@ public class UndertowWebsocketProcessor {
                 new ReflectiveClassBuildItem(true, true, ClientEndpointConfig.Configurator.class.getName()));
 
         return new ServletContextAttributeBuildItem(WebSocketDeploymentInfo.ATTRIBUTE_NAME,
-                recorder.createDeploymentInfo(annotated, endpoints, config));
+                recorder.createDeploymentInfo(annotated, endpoints, config, websocketConfig.maxFrameSize,
+                        websocketConfig.dispatchToWorker));
     }
 
     private void registerCodersForReflection(BuildProducer<ReflectiveClassBuildItem> reflection,
@@ -174,11 +186,11 @@ public class UndertowWebsocketProcessor {
         /**
          * The security key for remote hot deployment
          */
-        String password;
+        Optional<String> password;
 
         /**
          * The remote URL to connect to
          */
-        String url;
+        Optional<String> url;
     }
 }

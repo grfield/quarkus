@@ -19,6 +19,5 @@ public class LambdaConfig {
      *
      */
     @ConfigItem
-    Optional<String> handler;
-
+    public Optional<String> handler;
 }

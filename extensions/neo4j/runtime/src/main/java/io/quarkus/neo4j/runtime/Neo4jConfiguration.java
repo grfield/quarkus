@@ -2,6 +2,7 @@ package io.quarkus.neo4j.runtime;
 
 import java.time.Duration;
 
+import io.quarkus.runtime.annotations.ConfigDocSection;
 import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
@@ -21,15 +22,17 @@ public class Neo4jConfiguration {
     public String uri;
 
     /**
-     * The authentication the driver is supposed to use.
+     * Authentication.
      */
     @ConfigItem
+    @ConfigDocSection
     public Authentication authentication;
 
     /**
-     * Advanced settings for the drivers internal connection pool.
+     * Connection pool.
      */
     @ConfigItem
+    @ConfigDocSection
     public Pool pool;
 
     @ConfigGroup
@@ -50,7 +53,7 @@ public class Neo4jConfiguration {
         /**
          * Set this to true to disable authentication.
          */
-        @ConfigItem(defaultValue = "false")
+        @ConfigItem
         public boolean disabled = false;
     }
 
@@ -60,13 +63,13 @@ public class Neo4jConfiguration {
         /**
          * Flag, if metrics are enabled.
          */
-        @ConfigItem(defaultValue = "false")
+        @ConfigItem
         public boolean metricsEnabled;
 
         /**
          * Flag, if leaked sessions logging is enabled.
          */
-        @ConfigItem(defaultValue = "false")
+        @ConfigItem
         public boolean logLeakedSessions;
 
         /**

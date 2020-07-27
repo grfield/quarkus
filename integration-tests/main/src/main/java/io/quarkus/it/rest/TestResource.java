@@ -16,6 +16,7 @@ import javax.json.bind.Jsonb;
 import javax.json.bind.JsonbBuilder;
 import javax.json.bind.JsonbConfig;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.CookieParam;
 import javax.ws.rs.FormParam;
 import javax.ws.rs.GET;
@@ -39,6 +40,8 @@ import org.eclipse.microprofile.openapi.annotations.responses.APIResponses;
 
 import io.quarkus.runtime.annotations.RegisterForReflection;
 import io.reactivex.Single;
+import io.smallrye.mutiny.Multi;
+import io.smallrye.mutiny.Uni;
 
 @Path("/test")
 public class TestResource {
@@ -75,6 +78,13 @@ public class TestResource {
     @Path("/config/message")
     public String configMessage() {
         return config.message();
+    }
+
+    @GET
+    @Path("/config/names")
+    @Produces("application/json")
+    public String configNames() {
+        return String.join(",", config.names());
     }
 
     @GET
@@ -124,6 +134,14 @@ public class TestResource {
         return xmlObject;
     }
 
+    @POST
+    @Consumes("application/xml")
+    @Produces("text/plain")
+    @Path("/consumeXml")
+    public String consumeXml(XmlObject xmlObject) {
+        return xmlObject.getValue();
+    }
+
     @GET
     @Path("/cs")
     public CompletionStage<String> cs() {
@@ -137,9 +155,43 @@ public class TestResource {
     }
 
     @GET
+    @Path("/uni")
+    public Uni<String> uni() {
+        return Uni.createFrom().item("Hello from Uni");
+    }
+
+    @GET
+    @Path("/multi")
+    public Multi<String> multi() {
+        return Multi.createFrom().items("Hello", "from", "Multi");
+    }
+
+    @GET
+    @Path("/uniType")
+    public Uni<ComponentType> uniType() {
+        return Uni.createFrom().item(this::createComponent);
+    }
+
+    @GET
+    @Path("/multiType")
+    public Multi<ComponentType> multiType() {
+        return Multi.createFrom().items(createComponent(), createComponent());
+    }
+
+    @GET
+    @Path("/compType")
+    public ComponentType getComponentType() {
+        return createComponent();
+    }
+
+    @GET
     @Path("/complex")
     @Produces("application/json")
     public List<ComponentType> complex() {
+        return Collections.singletonList(createComponent());
+    }
+
+    private ComponentType createComponent() {
         ComponentType ret = new ComponentType();
         ret.setValue("component value");
         CollectionType ct = new CollectionType();
@@ -148,7 +200,7 @@ public class TestResource {
         SubComponent subComponent = new SubComponent();
         subComponent.getData().add("sub component list value");
         ret.setSubComponent(subComponent);
-        return Collections.singletonList(ret);
+        return ret;
     }
 
     @GET
@@ -254,17 +306,18 @@ public class TestResource {
     @GET
     @Path("/from-json")
     @Produces("application/json")
-    public MyEntity fromJson() {
+    public MyEntity fromJson() throws Exception {
         MyEntity entity = new MyEntity();
         entity.name = "my entity name";
         entity.value = "my entity value";
 
         JsonbConfig config = new JsonbConfig();
-        Jsonb jsonb = JsonbBuilder.create(config);
-        String json = jsonb.toJson(entity);
-        MyEntity fromJsonEntity = jsonb.fromJson(json, MyEntity.class);
+        try (Jsonb jsonb = JsonbBuilder.create(config)) {
+            String json = jsonb.toJson(entity);
+            MyEntity fromJsonEntity = jsonb.fromJson(json, MyEntity.class);
 
-        return fromJsonEntity;
+            return fromJsonEntity;
+        }
     }
 
     @GET
@@ -276,6 +329,70 @@ public class TestResource {
             @MatrixParam("matrix") String matrix,
             @QueryParam("query") String query) {
     }
+
+    // FIXME: don't enable this until https://github.com/smallrye/smallrye-open-api/issues/197 has been fixed
+    //    // make sure these don't break the build when fields
+    //    @org.jboss.resteasy.annotations.jaxrs.PathParam
+    //    String pathField;
+    //    @org.jboss.resteasy.annotations.jaxrs.FormParam
+    //    String formField;
+    //    @org.jboss.resteasy.annotations.jaxrs.CookieParam
+    //    String cookieField;
+    //    @org.jboss.resteasy.annotations.jaxrs.HeaderParam
+    //    String headerField;
+    //    @org.jboss.resteasy.annotations.jaxrs.MatrixParam
+    //    String matrixField;
+    //    @org.jboss.resteasy.annotations.jaxrs.QueryParam
+    //    String queryField;
+    //
+    //    // make sure these don't break the build when properties
+    //    public String getPathProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.PathParam
+    //    public void setPathProperty(String p) {
+    //    }
+    //
+    //    public String getFormProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.FormParam
+    //    public void setFormProperty(String p) {
+    //    }
+    //
+    //    public String getCookieProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.CookieParam
+    //    public void setCookieProperty(String p) {
+    //    }
+    //
+    //    public String getHeaderProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.HeaderParam
+    //    public void setHeaderProperty(String p) {
+    //    }
+    //
+    //    public String getMatrixProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.MatrixParam
+    //    public void setMatrixProperty(String p) {
+    //    }
+    //
+    //    public String getQueryProperty() {
+    //        return null;
+    //    }
+    //
+    //    @org.jboss.resteasy.annotations.jaxrs.QueryParam
+    //    public void setQueryProperty(String p) {
+    //    }
 
     @GET
     @Path("params2/{path}")

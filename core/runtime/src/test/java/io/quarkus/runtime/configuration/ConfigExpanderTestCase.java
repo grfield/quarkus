@@ -14,6 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import io.smallrye.config.ExpressionConfigSourceInterceptor;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfig;
 import io.smallrye.config.SmallRyeConfigBuilder;
@@ -34,12 +35,16 @@ public class ConfigExpanderTestCase {
 
     @AfterEach
     public void doAfter() {
-        cpr.releaseConfig(config);
+        try {
+            cpr.releaseConfig(cpr.getConfig());
+        } catch (IllegalStateException ignored) {
+            // just means no config was installed, which is fine
+        }
     }
 
     private SmallRyeConfig buildConfig(Map<String, String> configMap) {
         final SmallRyeConfigBuilder builder = new SmallRyeConfigBuilder();
-        builder.withWrapper(ExpandingConfigSource.wrapper(new ExpandingConfigSource.Cache()));
+        builder.withInterceptors(new ExpressionConfigSourceInterceptor());
         builder.withSources(new PropertiesConfigSource(configMap, "test input", 500));
         final SmallRyeConfig config = (SmallRyeConfig) builder.build();
         cpr.registerConfig(config, classLoader);

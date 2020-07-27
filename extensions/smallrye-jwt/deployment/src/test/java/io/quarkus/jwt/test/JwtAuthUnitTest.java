@@ -22,7 +22,8 @@ import io.restassured.response.Response;
 
 public class JwtAuthUnitTest {
     private static Class[] testClasses = {
-            JsonValuejectionEndpoint.class
+            JsonValuejectionEndpoint.class,
+            TokenUtils.class
     };
     /**
      * The test generated JWT token string
@@ -37,6 +38,9 @@ public class JwtAuthUnitTest {
     static final QuarkusUnitTest config = new QuarkusUnitTest()
             .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class)
                     .addClasses(testClasses)
+                    .addAsResource("publicKey.pem")
+                    .addAsResource("privateKey.pem")
+                    .addAsResource("Token1.json")
                     .addAsResource("application.properties"));
 
     @BeforeEach
@@ -58,10 +62,9 @@ public class JwtAuthUnitTest {
     /**
      * Verify that the injected token issuer claim is as expected
      *
-     * @throws Exception
      */
     @Test()
-    public void verifyIssuerClaim() throws Exception {
+    public void verifyIssuerClaim() {
         Response response = RestAssured.given().auth()
                 .oauth2(token)
                 .when()

@@ -19,14 +19,16 @@ import io.quarkus.arc.deployment.BeanContainerBuildItem;
 import io.quarkus.artemis.core.runtime.ArtemisCoreProducer;
 import io.quarkus.artemis.core.runtime.ArtemisCoreRecorder;
 import io.quarkus.artemis.core.runtime.ArtemisRuntimeConfig;
+import io.quarkus.deployment.Feature;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
-import io.quarkus.deployment.builditem.substrate.ReflectiveClassBuildItem;
-import io.quarkus.deployment.builditem.substrate.SubstrateConfigBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.NativeImageConfigBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
+import io.quarkus.smallrye.health.deployment.spi.HealthBuildItem;
 
 public class ArtemisCoreProcessor {
 
@@ -44,8 +46,8 @@ public class ArtemisCoreProcessor {
     };
 
     @BuildStep
-    SubstrateConfigBuildItem config() {
-        return SubstrateConfigBuildItem.builder()
+    NativeImageConfigBuildItem config() {
+        return NativeImageConfigBuildItem.builder()
                 .addRuntimeInitializedClass("org.apache.activemq.artemis.api.core.ActiveMQBuffers").build();
     }
 
@@ -79,24 +81,36 @@ public class ArtemisCoreProcessor {
     }
 
     @BuildStep
+    HealthBuildItem health(ArtemisBuildTimeConfig buildConfig, Optional<ArtemisJmsBuildItem> artemisJms) {
+        if (artemisJms.isPresent()) {
+            return null;
+        }
+
+        return new HealthBuildItem(
+                "io.quarkus.artemis.core.runtime.health.ServerLocatorHealthCheck",
+                buildConfig.healthEnabled);
+    }
+
+    @BuildStep
     void load(BuildProducer<AdditionalBeanBuildItem> additionalBean, BuildProducer<FeatureBuildItem> feature,
             Optional<ArtemisJmsBuildItem> artemisJms) {
 
         if (artemisJms.isPresent()) {
             return;
         }
-        feature.produce(new FeatureBuildItem(FeatureBuildItem.ARTEMIS_CORE));
+        feature.produce(new FeatureBuildItem(Feature.ARTEMIS_CORE));
         additionalBean.produce(AdditionalBeanBuildItem.unremovableOf(ArtemisCoreProducer.class));
     }
 
     @Record(ExecutionTime.RUNTIME_INIT)
     @BuildStep
-    void configure(ArtemisCoreRecorder recorder, ArtemisRuntimeConfig runtimeConfig,
+    ArtemisCoreConfiguredBuildItem configure(ArtemisCoreRecorder recorder, ArtemisRuntimeConfig runtimeConfig,
             BeanContainerBuildItem beanContainer, Optional<ArtemisJmsBuildItem> artemisJms) {
 
         if (artemisJms.isPresent()) {
-            return;
+            return null;
         }
         recorder.setConfig(runtimeConfig, beanContainer.getValue());
+        return new ArtemisCoreConfiguredBuildItem();
     }
 }

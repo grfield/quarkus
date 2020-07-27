@@ -1,10 +1,10 @@
 package io.quarkus.vertx.http.runtime.security;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
+import java.util.function.Function;
 
 import io.quarkus.security.identity.SecurityIdentity;
-import io.vertx.core.http.HttpServerRequest;
+import io.smallrye.mutiny.Uni;
+import io.vertx.ext.web.RoutingContext;
 
 /**
  * permission checker that checks if the user is authenticated
@@ -12,7 +12,13 @@ import io.vertx.core.http.HttpServerRequest;
 public class AuthenticatedHttpSecurityPolicy implements HttpSecurityPolicy {
 
     @Override
-    public CompletionStage<CheckResult> checkPermission(HttpServerRequest request, SecurityIdentity identity) {
-        return CompletableFuture.completedFuture(identity.isAnonymous() ? CheckResult.DENY : CheckResult.PERMIT);
+    public Uni<CheckResult> checkPermission(RoutingContext request, Uni<SecurityIdentity> identity,
+            AuthorizationRequestContext requestContext) {
+        return identity.map(new Function<SecurityIdentity, CheckResult>() {
+            @Override
+            public CheckResult apply(SecurityIdentity identity) {
+                return identity.isAnonymous() ? CheckResult.DENY : CheckResult.PERMIT;
+            }
+        });
     }
 }

@@ -1,23 +1,23 @@
 package io.quarkus.maven;
 
-import java.io.File;
-import java.io.IOException;
+import static java.util.stream.Collectors.toSet;
+
+import java.net.URL;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.maven.model.Model;
-import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
 
-import io.quarkus.cli.commands.AddExtensionResult;
-import io.quarkus.cli.commands.AddExtensions;
-import io.quarkus.cli.commands.writer.FileProjectWriter;
+import io.quarkus.devtools.commands.AddExtensions;
+import io.quarkus.devtools.commands.data.QuarkusCommandOutcome;
+import io.quarkus.devtools.project.QuarkusProject;
+import io.quarkus.platform.tools.MessageWriter;
+import io.quarkus.registry.DefaultExtensionRegistry;
 
 /**
  * Allow adding an extension to an existing pom.xml file.
@@ -26,13 +26,7 @@ import io.quarkus.cli.commands.writer.FileProjectWriter;
  * parameters.
  */
 @Mojo(name = "add-extension")
-public class AddExtensionMojo extends AbstractMojo {
-
-    /**
-     * The Maven project which will define and configure the quarkus-maven-plugin
-     */
-    @Parameter(defaultValue = "${project}")
-    protected MavenProject project;
+public class AddExtensionMojo extends QuarkusProjectMojoBase {
 
     /**
      * The list of extensions to be added.
@@ -46,31 +40,43 @@ public class AddExtensionMojo extends AbstractMojo {
     @Parameter(property = "extension")
     String extension;
 
+    /**
+     * The URL where the registry is.
+     */
+    @Parameter(property = "registry", alias = "quarkus.extension.registry")
+    List<URL> registries;
+
     @Override
-    public void execute() throws MojoExecutionException {
+    protected void validateParameters() throws MojoExecutionException {
         if ((StringUtils.isBlank(extension) && (extensions == null || extensions.isEmpty())) // None are set
                 || (!StringUtils.isBlank(extension) && extensions != null && !extensions.isEmpty())) { // Both are set
             throw new MojoExecutionException("Either the `extension` or `extensions` parameter must be set");
         }
+    }
 
+    @Override
+    public void doExecute(final QuarkusProject quarkusProject, final MessageWriter log)
+            throws MojoExecutionException {
         Set<String> ext = new HashSet<>();
         if (extensions != null && !extensions.isEmpty()) {
             ext.addAll(extensions);
         } else {
             // Parse the "extension" just in case it contains several comma-separated values
             // https://github.com/quarkusio/quarkus/issues/2393
-            ext.addAll(Arrays.stream(extension.split(",")).map(s -> s.trim()).collect(Collectors.toSet()));
+            ext.addAll(Arrays.stream(extension.split(",")).map(String::trim).collect(toSet()));
         }
 
         try {
-            Model model = project.getOriginalModel().clone();
-            File pomFile = new File(model.getPomFile().getAbsolutePath());
-            AddExtensionResult result = new AddExtensions(new FileProjectWriter(pomFile.getParentFile()))
-                    .addExtensions(ext.stream().map(String::trim).collect(Collectors.toSet()));
-            if (!result.succeeded()) {
+            AddExtensions addExtensions = new AddExtensions(quarkusProject)
+                    .extensions(ext.stream().map(String::trim).collect(toSet()));
+            if (registries != null && !registries.isEmpty()) {
+                addExtensions.extensionRegistry(DefaultExtensionRegistry.fromURLs(registries));
+            }
+            final QuarkusCommandOutcome outcome = addExtensions.execute();
+            if (!outcome.isSuccess()) {
                 throw new MojoExecutionException("Unable to add extensions");
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new MojoExecutionException("Unable to update the pom.xml file", e);
         }
     }

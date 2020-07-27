@@ -16,6 +16,7 @@ import io.quarkus.gizmo.ClassOutput;
 import io.quarkus.gizmo.MethodCreator;
 import io.quarkus.gizmo.MethodDescriptor;
 import io.quarkus.gizmo.ResultHandle;
+import io.quarkus.runtime.util.HashUtil;
 
 abstract class AbstractExceptionMapperGenerator {
 
@@ -33,9 +34,10 @@ abstract class AbstractExceptionMapperGenerator {
     abstract void generateMethodBody(MethodCreator toResponse);
 
     String generate() {
-        String generatedClassName = "io.quarkus.spring.web.mappers." + exceptionDotName.withoutPackagePrefix() + "Mapper";
+        String generatedClassName = "io.quarkus.spring.web.mappers." + exceptionDotName.withoutPackagePrefix() + "_Mapper_"
+                + HashUtil.sha1(exceptionDotName.toString());
         String generatedSubtypeClassName = "io.quarkus.spring.web.mappers.Subtype" + exceptionDotName.withoutPackagePrefix()
-                + "Mapper";
+                + "Mapper_" + HashUtil.sha1(exceptionDotName.toString());
         String exceptionClassName = exceptionDotName.toString();
 
         try (ClassCreator cc = ClassCreator.builder()

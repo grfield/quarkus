@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.enterprise.context.Dependent;
+import javax.enterprise.inject.CreationException;
+
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationValue;
@@ -22,16 +25,21 @@ import org.jboss.jandex.Type;
 import org.jboss.jandex.Type.Kind;
 
 import io.quarkus.arc.deployment.BeanRegistrationPhaseBuildItem.BeanConfiguratorBuildItem;
+import io.quarkus.arc.processor.BeanRegistrar;
 import io.quarkus.arc.processor.BuildExtension;
 import io.quarkus.arc.processor.DotNames;
 import io.quarkus.arc.processor.InjectionPointInfo;
 import io.quarkus.arc.runtime.ConfigBeanCreator;
 import io.quarkus.arc.runtime.ConfigRecorder;
-import io.quarkus.arc.runtime.QuarkusConfigProducer;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.Record;
-import io.quarkus.deployment.builditem.substrate.ReflectiveClassBuildItem;
+import io.quarkus.deployment.builditem.ConfigurationBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
+import io.quarkus.deployment.configuration.definition.RootDefinition;
+import io.quarkus.gizmo.ResultHandle;
+import io.quarkus.runtime.annotations.ConfigPhase;
+import io.smallrye.config.inject.ConfigProducer;
 
 /**
  * MicroProfile Config related build steps.
@@ -44,7 +52,7 @@ public class ConfigBuildStep {
 
     @BuildStep
     AdditionalBeanBuildItem bean() {
-        return new AdditionalBeanBuildItem(QuarkusConfigProducer.class);
+        return new AdditionalBeanBuildItem(ConfigProducer.class);
     }
 
     @BuildStep
@@ -96,11 +104,8 @@ public class ConfigBuildStep {
                     // No need to validate properties with default values
                     continue;
                 }
-                String propertyType = requiredType.name().toString();
-                if (requiredType.kind() != Kind.ARRAY && requiredType.kind() != Kind.PRIMITIVE) {
-                    reflectiveClass.produce(new ReflectiveClassBuildItem(false, false, propertyType));
-                }
-                configProperties.produce(new ConfigPropertyBuildItem(propertyName, propertyType));
+
+                configProperties.produce(new ConfigPropertyBuildItem(propertyName, requiredType));
             }
         }
 
@@ -120,20 +125,50 @@ public class ConfigBuildStep {
     }
 
     @BuildStep
-    AutoInjectAnnotationBuildItem autoInjectConfigProperty() {
-        return new AutoInjectAnnotationBuildItem(CONFIG_PROPERTY_NAME);
-    }
-
-    @BuildStep
     @Record(RUNTIME_INIT)
     void validateConfigProperties(ConfigRecorder recorder, List<ConfigPropertyBuildItem> configProperties,
-            BeanContainerBuildItem beanContainer) {
+            BeanContainerBuildItem beanContainer, BuildProducer<ReflectiveClassBuildItem> reflectiveClass) {
         // IMPL NOTE: we do depend on BeanContainerBuildItem to make sure that the BeanDeploymentValidator finished its processing
+
+        // the non-primitive types need to be registered for reflection since Class.forName is used at runtime to load the class
+        for (ConfigPropertyBuildItem item : configProperties) {
+            Type requiredType = item.getPropertyType();
+            String propertyType = requiredType.name().toString();
+            if (requiredType.kind() != Kind.PRIMITIVE) {
+                reflectiveClass.produce(new ReflectiveClassBuildItem(false, false, propertyType));
+            }
+        }
 
         Map<String, Set<String>> propNamesToClasses = configProperties.stream().collect(
                 groupingBy(ConfigPropertyBuildItem::getPropertyName,
-                        mapping(ConfigPropertyBuildItem::getPropertyType, toSet())));
+                        mapping(c -> c.getPropertyType().name().toString(), toSet())));
         recorder.validateConfigProperties(propNamesToClasses);
+    }
+
+    @BuildStep
+    BeanRegistrarBuildItem registerConfigRootsAsBeans(ConfigurationBuildItem configItem) {
+        return new BeanRegistrarBuildItem(new BeanRegistrar() {
+            @Override
+            public void register(RegistrationContext context) {
+                for (RootDefinition rootDefinition : configItem.getReadResult().getAllRoots()) {
+                    if (rootDefinition.getConfigPhase() == ConfigPhase.BUILD_AND_RUN_TIME_FIXED
+                            || rootDefinition.getConfigPhase() == ConfigPhase.RUN_TIME) {
+                        Class<?> configRootClass = rootDefinition.getConfigurationClass();
+                        context.configure(configRootClass).types(configRootClass)
+                                .scope(Dependent.class).creator(mc -> {
+                                    // e.g. return Config.ApplicationConfig
+                                    ResultHandle configRoot = mc.readStaticField(rootDefinition.getDescriptor());
+                                    // BUILD_AND_RUN_TIME_FIXED roots are always set before the container is started (in the static initializer of the generated Config class)
+                                    // However, RUN_TIME roots may be not be set when the bean instance is created 
+                                    mc.ifNull(configRoot).trueBranch().throwException(CreationException.class,
+                                            String.format("Config root [%s] with config phase [%s] not initialized yet.",
+                                                    configRootClass.getName(), rootDefinition.getConfigPhase().name()));
+                                    mc.returnValue(configRoot);
+                                }).done();
+                    }
+                }
+            }
+        });
     }
 
     private String getPropertyName(String name, ClassInfo declaringClass) {
@@ -151,21 +186,20 @@ public class ConfigBuildStep {
             return false;
         }
         if (type.kind() == Kind.PRIMITIVE) {
-            switch (type.asPrimitiveType().primitive()) {
-                case BOOLEAN:
-                case DOUBLE:
-                case FLOAT:
-                case LONG:
-                case INT:
-                    return true;
-                default:
-                    return false;
-            }
+            return true;
         }
-        return DotNames.STRING.equals(type.name()) || DotNames.OPTIONAL.equals(type.name()) || SET_NAME.equals(type.name())
-                || LIST_NAME.equals(type.name()) || DotNames.LONG.equals(type.name()) || DotNames.FLOAT.equals(type.name())
-                || DotNames.INTEGER.equals(type.name()) || DotNames.BOOLEAN.equals(type.name())
-                || DotNames.DOUBLE.equals(type.name());
+        return DotNames.STRING.equals(type.name()) ||
+                DotNames.OPTIONAL.equals(type.name()) ||
+                SET_NAME.equals(type.name()) ||
+                LIST_NAME.equals(type.name()) ||
+                DotNames.LONG.equals(type.name()) ||
+                DotNames.FLOAT.equals(type.name()) ||
+                DotNames.INTEGER.equals(type.name()) ||
+                DotNames.BOOLEAN.equals(type.name()) ||
+                DotNames.DOUBLE.equals(type.name()) ||
+                DotNames.SHORT.equals(type.name()) ||
+                DotNames.BYTE.equals(type.name()) ||
+                DotNames.CHARACTER.equals(type.name());
     }
 
 }

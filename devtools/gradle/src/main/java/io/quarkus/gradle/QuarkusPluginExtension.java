@@ -1,140 +1,160 @@
 package io.quarkus.gradle;
 
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Map;
 import java.util.Set;
 
 import org.gradle.api.Project;
+import org.gradle.api.file.FileCollection;
+import org.gradle.api.file.RegularFile;
+import org.gradle.api.plugins.Convention;
+import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.api.plugins.JavaPluginConvention;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
-import org.gradle.api.tasks.SourceSetContainer;
+import org.gradle.api.tasks.testing.Test;
+import org.gradle.jvm.tasks.Jar;
 
+import io.quarkus.bootstrap.BootstrapConstants;
 import io.quarkus.bootstrap.model.AppArtifact;
+import io.quarkus.bootstrap.model.AppModel;
 import io.quarkus.bootstrap.resolver.AppModelResolver;
+import io.quarkus.bootstrap.resolver.model.ModelParameter;
+import io.quarkus.bootstrap.resolver.model.QuarkusModel;
+import io.quarkus.bootstrap.resolver.model.impl.ModelParameterImpl;
+import io.quarkus.gradle.builder.QuarkusModelBuilder;
+import io.quarkus.gradle.tasks.QuarkusGradleUtils;
+import io.quarkus.runtime.LaunchMode;
 
-/**
- * @author <a href="mailto:stalep@gmail.com">Ståle Pedersen</a>
- */
 public class QuarkusPluginExtension {
 
     private final Project project;
 
-    private String transformedClassesDirectory = "transformed-classes";
-
-    private String wiringClassesDirectory = "wiring-classes";
-
-    private String libDir = "lib";
-
-    private String outputDirectory;
+    private File outputDirectory;
 
     private String finalName;
 
-    private String sourceDir;
+    private File sourceDir;
 
-    private String workingDir;
+    private File workingDir;
 
-    private String outputConfigDirectory;
+    private File outputConfigDirectory;
 
     public QuarkusPluginExtension(Project project) {
         this.project = project;
     }
 
-    public File transformedClassesDirectory() {
-        return new File(project.getBuildDir() + File.separator + transformedClassesDirectory);
+    void beforeTest(Test task) {
+        try {
+            final Map<String, Object> props = task.getSystemProperties();
+
+            final AppModel appModel = getAppModelResolver(LaunchMode.TEST)
+                    .resolveModel(getAppArtifact());
+            final Path serializedModel = QuarkusGradleUtils.serializeAppModel(appModel, task);
+            props.put(BootstrapConstants.SERIALIZED_APP_MODEL, serializedModel.toString());
+
+            final String nativeRunner = task.getProject().getBuildDir().toPath().resolve(finalName() + "-runner")
+                    .toAbsolutePath()
+                    .toString();
+            props.put("native.image.path", nativeRunner);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to resolve deployment classpath", e);
+        }
     }
 
-    public void setTransformedClassesDirectory(String transformedClassesDirectory) {
-        this.transformedClassesDirectory = transformedClassesDirectory;
+    public Path appJarOrClasses() {
+        final Jar jarTask = (Jar) project.getTasks().findByName(JavaPlugin.JAR_TASK_NAME);
+        if (jarTask == null) {
+            throw new RuntimeException("Failed to locate task 'jar' in the project.");
+        }
+        final Provider<RegularFile> jarProvider = jarTask.getArchiveFile();
+        Path classesDir = null;
+        if (jarProvider.isPresent()) {
+            final File f = jarProvider.get().getAsFile();
+            if (f.exists()) {
+                classesDir = f.toPath();
+            }
+        }
+        if (classesDir == null) {
+            final Convention convention = project.getConvention();
+            JavaPluginConvention javaConvention = convention.findPlugin(JavaPluginConvention.class);
+            if (javaConvention != null) {
+                final SourceSet mainSourceSet = javaConvention.getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME);
+                final String classesPath = QuarkusGradleUtils.getClassesDir(mainSourceSet, jarTask.getTemporaryDir());
+                if (classesPath != null) {
+                    classesDir = Paths.get(classesPath);
+                }
+            }
+        }
+        if (classesDir == null) {
+            throw new RuntimeException("Failed to locate project's classes directory");
+        }
+        return classesDir;
     }
 
     public File outputDirectory() {
-        if (outputDirectory == null)
-            outputDirectory = project.getConvention().getPlugin(JavaPluginConvention.class)
-                    .getSourceSets().getByName("main").getOutput().getClassesDirs().getAsPath();
-
-        return new File(outputDirectory);
+        if (outputDirectory == null) {
+            outputDirectory = getLastFile(project.getConvention().getPlugin(JavaPluginConvention.class)
+                    .getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getOutput().getClassesDirs());
+        }
+        return outputDirectory;
     }
 
     public void setOutputDirectory(String outputDirectory) {
-        this.outputDirectory = outputDirectory;
+        this.outputDirectory = new File(outputDirectory);
     }
 
     public File outputConfigDirectory() {
-        if (outputConfigDirectory == null)
+        if (outputConfigDirectory == null) {
             outputConfigDirectory = project.getConvention().getPlugin(JavaPluginConvention.class)
-                    .getSourceSets().getByName("main").getOutput().getResourcesDir().getAbsolutePath();
-
-        return new File(outputConfigDirectory);
+                    .getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getOutput().getResourcesDir();
+        }
+        return outputConfigDirectory;
     }
 
-    public void setConfigOutputDirectory(String outputDirectory) {
-        this.outputConfigDirectory = outputDirectory;
+    public void setOutputConfigDirectory(String outputConfigDirectory) {
+        this.outputConfigDirectory = new File(outputConfigDirectory);
     }
 
     public File sourceDir() {
-        if (sourceDir == null)
-            sourceDir = project.getConvention().getPlugin(JavaPluginConvention.class)
-                    .getSourceSets().getByName("main").getAllJava().getSourceDirectories().getAsPath();
-
-        return new File(sourceDir);
+        if (sourceDir == null) {
+            sourceDir = getLastFile(project.getConvention().getPlugin(JavaPluginConvention.class)
+                    .getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getAllJava().getSourceDirectories());
+        }
+        return sourceDir;
     }
 
     public void setSourceDir(String sourceDir) {
-        this.sourceDir = sourceDir;
+        this.sourceDir = new File(sourceDir);
     }
 
     public File workingDir() {
         if (workingDir == null) {
-            workingDir = outputDirectory().getPath();
+            workingDir = outputDirectory();
         }
-
-        return new File(workingDir);
+        return workingDir;
     }
 
     public void setWorkingDir(String workingDir) {
-        this.workingDir = workingDir;
-    }
-
-    public File wiringClassesDirectory() {
-        return new File(project.getBuildDir() + File.separator + wiringClassesDirectory);
-    }
-
-    public void setWiringClassesDirectory(String wiringClassesDirectory) {
-        this.wiringClassesDirectory = wiringClassesDirectory;
-    }
-
-    public File libDir() {
-        return new File(project.getBuildDir() + File.separator + libDir);
-    }
-
-    public void setLibDir(String libDir) {
-        this.libDir = libDir;
+        this.workingDir = new File(workingDir);
     }
 
     public String finalName() {
-        if (finalName == null || finalName.length() == 0)
-            return project.getName() + "-" + project.getVersion();
-        else
-            return finalName;
+        if (finalName == null || finalName.length() == 0) {
+            this.finalName = String.format("%s-%s", project.getName(), project.getVersion());
+        }
+        return finalName;
     }
 
     public void setFinalName(String finalName) {
         this.finalName = finalName;
     }
 
-    public boolean uberJar() {
-        return false;
-    }
-
     public Set<File> resourcesDir() {
         return project.getConvention().getPlugin(JavaPluginConvention.class)
-                .getSourceSets().getByName("main").getResources().getSrcDirs();
-    }
-
-    public Set<File> dependencyFiles() {
-        SourceSetContainer sourceSets = project.getConvention().getPlugin(JavaPluginConvention.class).getSourceSets();
-        SourceSet sourceSet = sourceSets.getByName("main");
-        Set<File> files = sourceSet.getCompileClasspath().getFiles();
-        return files;
+                .getSourceSets().getByName(SourceSet.MAIN_SOURCE_SET_NAME).getResources().getSrcDirs();
     }
 
     public AppArtifact getAppArtifact() {
@@ -142,7 +162,41 @@ public class QuarkusPluginExtension {
                 project.getVersion().toString());
     }
 
-    public AppModelResolver resolveAppModel() {
-        return new AppModelGradleResolver(project);
+    public AppModelResolver getAppModelResolver() {
+        return getAppModelResolver(LaunchMode.NORMAL);
     }
+
+    public AppModelResolver getAppModelResolver(LaunchMode mode) {
+        return new AppModelGradleResolver(project, getQuarkusModel(mode));
+    }
+
+    public QuarkusModel getQuarkusModel() {
+        return getQuarkusModel(LaunchMode.NORMAL);
+    }
+
+    public QuarkusModel getQuarkusModel(LaunchMode mode) {
+        return create(project, mode);
+    }
+
+    private QuarkusModel create(Project project, LaunchMode mode) {
+        QuarkusModelBuilder builder = new QuarkusModelBuilder();
+        ModelParameter params = new ModelParameterImpl();
+        params.setMode(mode.toString());
+        return (QuarkusModel) builder.buildAll(QuarkusModel.class.getName(), params, project);
+    }
+
+    /**
+     * Returns the last file from the specified {@link FileCollection}.
+     * Needed for the Scala plugin.
+     */
+    private File getLastFile(FileCollection fileCollection) {
+        File result = null;
+        for (File f : fileCollection) {
+            if (result == null || f.exists()) {
+                result = f;
+            }
+        }
+        return result;
+    }
+
 }

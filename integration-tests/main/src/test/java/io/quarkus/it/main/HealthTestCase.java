@@ -28,7 +28,28 @@ public class HealthTestCase {
                     .header("Content-Type", containsString("charset=UTF-8"))
                     .body("status", is("UP"),
                             "checks.status", containsInAnyOrder("UP"),
-                            "checks.name", containsInAnyOrder("Database connection(s) health check"));
+                            "checks.name", containsInAnyOrder("Database connections health check"));
+
+            RestAssured.when().get("/health/group/group1").then()
+                    .contentType(ContentType.JSON)
+                    .header("Content-Type", containsString("charset=UTF-8"))
+                    .body("status", is("UP"),
+                            "checks.status", containsInAnyOrder("UP", "UP"),
+                            "checks.name", containsInAnyOrder("single", "combined"));
+
+            RestAssured.when().get("/health/group/group2").then()
+                    .contentType(ContentType.JSON)
+                    .header("Content-Type", containsString("charset=UTF-8"))
+                    .body("status", is("UP"),
+                            "checks.status", containsInAnyOrder("UP"),
+                            "checks.name", containsInAnyOrder("combined"));
+
+            RestAssured.when().get("/health/group").then()
+                    .contentType(ContentType.JSON)
+                    .header("Content-Type", containsString("charset=UTF-8"))
+                    .body("status", is("UP"),
+                            "checks.status", containsInAnyOrder("UP", "UP"),
+                            "checks.name", containsInAnyOrder("single", "combined"));
         } finally {
             RestAssured.reset();
         }

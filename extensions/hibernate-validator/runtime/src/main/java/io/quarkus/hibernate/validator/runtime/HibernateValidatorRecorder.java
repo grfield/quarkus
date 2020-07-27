@@ -1,8 +1,5 @@
 package io.quarkus.hibernate.validator.runtime;
 
-import java.lang.reflect.Method;
-import java.util.Collections;
-import java.util.Locale;
 import java.util.Set;
 
 import javax.validation.ClockProvider;
@@ -16,7 +13,8 @@ import javax.validation.valueextraction.ValueExtractor;
 
 import org.hibernate.validator.PredefinedScopeHibernateValidator;
 import org.hibernate.validator.PredefinedScopeHibernateValidatorConfiguration;
-import org.hibernate.validator.messageinterpolation.ParameterMessageInterpolator;
+import org.hibernate.validator.internal.engine.resolver.JPATraversableResolver;
+import org.hibernate.validator.spi.messageinterpolation.LocaleResolver;
 import org.hibernate.validator.spi.properties.GetterPropertySelectionStrategy;
 import org.hibernate.validator.spi.scripting.ScriptEvaluatorFactory;
 
@@ -24,6 +22,7 @@ import io.quarkus.arc.Arc;
 import io.quarkus.arc.InstanceHandle;
 import io.quarkus.arc.runtime.BeanContainer;
 import io.quarkus.arc.runtime.BeanContainerListener;
+import io.quarkus.runtime.LocalesBuildTimeConfig;
 import io.quarkus.runtime.ShutdownContext;
 import io.quarkus.runtime.annotations.Recorder;
 
@@ -31,7 +30,10 @@ import io.quarkus.runtime.annotations.Recorder;
 public class HibernateValidatorRecorder {
 
     public BeanContainerListener initializeValidatorFactory(Set<Class<?>> classesToBeValidated,
-            ShutdownContext shutdownContext) {
+            Set<String> detectedBuiltinConstraints,
+            boolean hasXmlConfiguration, boolean jpaInClasspath,
+            ShutdownContext shutdownContext, LocalesBuildTimeConfig localesBuildTimeConfig,
+            HibernateValidatorBuildTimeConfig hibernateValidatorBuildTimeConfig) {
         BeanContainerListener beanContainerListener = new BeanContainerListener() {
 
             @Override
@@ -40,20 +42,23 @@ public class HibernateValidatorRecorder {
                         .byProvider(PredefinedScopeHibernateValidator.class)
                         .configure();
 
-                Set<Locale> localesToInitialize = Collections.singleton(Locale.getDefault());
+                if (!hasXmlConfiguration) {
+                    configuration.ignoreXmlConfiguration();
+                }
 
-                try {
-                    Class<?> cl = Class.forName("javax.el.ELManager");
-                    Method method = cl.getDeclaredMethod("getExpressionFactory");
-                    method.invoke(null);
-                } catch (Throwable t) {
-                    //if EL is not on the class path we use the parameter message interpolator
-                    configuration.messageInterpolator(new ParameterMessageInterpolator(localesToInitialize));
+                LocaleResolver localeResolver = null;
+                InstanceHandle<LocaleResolver> configuredLocaleResolver = Arc.container()
+                        .instance(LocaleResolver.class);
+                if (configuredLocaleResolver.isAvailable()) {
+                    localeResolver = configuredLocaleResolver.get();
+                    configuration.localeResolver(localeResolver);
                 }
 
                 configuration
+                        .builtinConstraints(detectedBuiltinConstraints)
                         .initializeBeanMetaData(classesToBeValidated)
-                        .initializeLocales(localesToInitialize)
+                        .locales(localesBuildTimeConfig.locales)
+                        .defaultLocale(localesBuildTimeConfig.defaultLocale)
                         .beanMetaDataClassNormalizer(new ArcProxyBeanMetaDataClassNormalizer());
 
                 InstanceHandle<ConstraintValidatorFactory> configuredConstraintValidatorFactory = Arc.container()
@@ -74,6 +79,13 @@ public class HibernateValidatorRecorder {
                         .instance(TraversableResolver.class);
                 if (configuredTraversableResolver.isAvailable()) {
                     configuration.traversableResolver(configuredTraversableResolver.get());
+                } else {
+                    // we still define the one we want to use so that we do not rely on runtime automatic detection
+                    if (jpaInClasspath) {
+                        configuration.traversableResolver(new JPATraversableResolver());
+                    } else {
+                        configuration.traversableResolver(new TraverseAllTraversableResolver());
+                    }
                 }
 
                 InstanceHandle<ParameterNameProvider> configuredParameterNameProvider = Arc.container()
@@ -88,6 +100,14 @@ public class HibernateValidatorRecorder {
                 }
 
                 // Hibernate Validator-specific configuration
+
+                configuration.failFast(hibernateValidatorBuildTimeConfig.failFast);
+                configuration.allowOverridingMethodAlterParameterConstraint(
+                        hibernateValidatorBuildTimeConfig.methodValidation.allowOverridingParameterConstraints);
+                configuration.allowParallelMethodsDefineParameterConstraints(
+                        hibernateValidatorBuildTimeConfig.methodValidation.allowParameterConstraintsOnParallelMethods);
+                configuration.allowMultipleCascadedValidationOnReturnValues(
+                        hibernateValidatorBuildTimeConfig.methodValidation.allowMultipleCascadedValidationOnReturnValues);
 
                 InstanceHandle<ScriptEvaluatorFactory> configuredScriptEvaluatorFactory = Arc.container()
                         .instance(ScriptEvaluatorFactory.class);

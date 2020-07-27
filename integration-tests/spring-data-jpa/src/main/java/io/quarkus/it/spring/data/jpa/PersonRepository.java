@@ -17,6 +17,8 @@ public interface PersonRepository extends CrudRepository<Person, Long>, PersonFr
 
     List<Person> findByName(String name);
 
+    List<Person> findByName(String name, Pageable pageable);
+
     List<Person> findByName(String name, Sort sort);
 
     Page<Person> findByNameOrderByJoined(String name, Pageable pageable);
@@ -38,4 +40,8 @@ public interface PersonRepository extends CrudRepository<Person, Long>, PersonFr
     List<Person> findTop3ByActive(boolean active, Sort sort);
 
     List<Person> findPeopleByAddressZipCode(String zipCode);
+
+    List<Person> findByAddressId(Long addressId);
+
+    List<Person> findByAddressStreetNumber(String streetName);
 }

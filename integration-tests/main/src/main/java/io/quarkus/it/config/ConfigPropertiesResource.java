@@ -1,5 +1,7 @@
 package io.quarkus.it.config;
 
+import java.math.BigDecimal;
+
 import javax.validation.constraints.Size;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
@@ -17,7 +19,7 @@ public class ConfigPropertiesResource {
 
     @GET
     public String greet() {
-        return greetingConfiguration.message + greetingConfiguration.suffix;
+        return greetingConfiguration.message + greetingConfiguration.number + greetingConfiguration.suffix;
     }
 
     @ConfigProperties(prefix = "configproperties")
@@ -25,5 +27,12 @@ public class ConfigPropertiesResource {
         @Size(min = 2)
         public String message;
         public String suffix = "!";
+        public BigDecimal other;
+        public NumberEnum number;
+    }
+
+    public enum NumberEnum {
+        ONE,
+        TWO;
     }
 }

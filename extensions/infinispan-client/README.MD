@@ -72,22 +72,21 @@ Bounded and Unbounded both work. Exception encountered when protobuf marshalling
 
 This is working, but requires some additional steps to get configured.
 
-#### Configure truststore information (optionally keystore)
+#### Configure truststore information
 
-This is configured via hotrod-client.properties file located in META-INF. Everything is the same as normal in that
+This is configured via the `quarkus.infinispan-client.trust-store` application property. Everything is the same as normal in that
 you have to add the certificate from the server to the configured truststore if it already trusted in the default
 java cacerts file.
 
-#### Configure your project to allow security services (enable JNI optional)
+#### Configuring keystore information
+
+The keystore is configured via hotrod-client.properties file located in META-INF.
+
+#### Configure your project to allow security services
 
 You (currently) need to enable all security services in Substrate
 (https://github.com/oracle/graal/blob/master/substratevm/JCA-SECURITY-SERVICES.md). This can be done by adding
 `<enableAllSecurityServices>true</enableAllSecurityServices>` to the quarkus-maven-plugin configuration values.
-
-You may have to also enable JNI, depending on the security provider by also adding `<enableJni>true</enableJni>` to the
-same configuration values. If you have to enable JNI you will then also have to add the appropriate shared library to
-be contained in a directory defined by `java.library.path`. In many times this shared library will be `sunec`, which
-can be located at `<JAVA_HOME>/jre/lib/<platform>/libsunec.so`.
 
 ### Authentication
 

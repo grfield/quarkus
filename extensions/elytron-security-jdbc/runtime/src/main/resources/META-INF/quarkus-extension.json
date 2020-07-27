@@ -1,9 +1,0 @@
-
-{
-    "name": "JDBC based Security",
-    "labels": [
-        "security",
-        "jdbc"
-    ],
-    "guide": "https://quarkus.io/guides/security-jdbc-guide"
-}

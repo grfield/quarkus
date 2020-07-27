@@ -114,25 +114,6 @@ final class InternalStreamConnectionSubtitution {
     }
 }
 
-@TargetClass(MongoClientOptions.class)
-final class MongoClientOptionsSubstitution {
-
-    @Alias
-    private SocketFactory socketFactory;
-
-    @Alias
-    private static SocketFactory DEFAULT_SOCKET_FACTORY;
-
-    @Substitute
-    public SocketFactory getSocketFactory() {
-        if (this.socketFactory != null) {
-            return this.socketFactory;
-        } else {
-            return DEFAULT_SOCKET_FACTORY;
-        }
-    }
-}
-
 @TargetClass(UnixSocketChannelStream.class)
 @Delete
 final class UnixSocketChannelStreamSubstitution {
@@ -190,5 +171,16 @@ final class DefaultDnsResolverSubstitution {
     @Substitute
     public String resolveAdditionalQueryParametersFromTxtRecords(final String host) {
         throw new UnsupportedOperationException("mongo+srv:// not supported in native mode");
+    }
+}
+
+//TODO: move to a dedicated jna extension that will simply collect JNA substitutions
+@TargetClass(com.sun.jna.Native.class)
+final class JnaNativeSubstitutions {
+
+    // This method can trick GraalVM into thinking that Classloader#findLibrary is getting called
+    @Substitute
+    public static String getWebStartLibraryPath(final String libName) {
+        return null;
     }
 }

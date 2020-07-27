@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
@@ -12,7 +12,7 @@
     </parent>
 
     <artifactId>quarkus-junit5-internal</artifactId>
-    <name>Quarkus - Test framework - JUnit 5 Internal Test Framework</name>
+    <name>Quarkus - Test Framework - JUnit 5 Internal Test Framework</name>
 
     <description>
         A runner for unit tests, intended for testing Quarkus rather than
@@ -49,12 +49,12 @@
             <artifactId>quarkus-test-common</artifactId>
         </dependency>
         <dependency>
-            <groupId>javax.enterprise</groupId>
-            <artifactId>cdi-api</artifactId>
+            <groupId>jakarta.enterprise</groupId>
+            <artifactId>jakarta.enterprise.cdi-api</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-development-mode</artifactId>
+            <artifactId>quarkus-devtools-utilities</artifactId>
         </dependency>
     </dependencies>
 

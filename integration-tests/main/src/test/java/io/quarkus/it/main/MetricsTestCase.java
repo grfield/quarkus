@@ -53,6 +53,13 @@ public class MetricsTestCase {
     }
 
     @Test
+    public void testSimpleTimer() {
+        invokeSimpleTimer();
+        assertMetricExactValue(metricsPrefix + "MetricsResource_simple_timer_metric_total", "1.0");
+        assertMetricExists(metricsPrefix + "MetricsResource_simple_timer_metric_elapsedTime_seconds");
+    }
+
+    @Test
     public void testTimer() {
         invokeTimer();
         assertMetricExactValue(metricsPrefix + "MetricsResource_timer_metric_seconds_count", "1.0");
@@ -160,6 +167,23 @@ public class MetricsTestCase {
                 .body(not(containsString("io_smallrye_metrics")));
     }
 
+    /**
+     * This is to verify that a Gauge works in native mode when its owning bean is annotated with RegisterForReflection.
+     */
+    @Test
+    public void testDummyGauge() {
+        assertMetricExactValue(metricsPrefix + "DummyGauge_dummyGauge", "42.0");
+    }
+
+    /**
+     * This is to verify that a Gauge works in native mode even if its owning bean is not
+     * explicitly annotated with RegisterForReflection.
+     */
+    @Test
+    public void testDummyGaugeNoReflectionAnnotation() {
+        assertMetricExactValue(metricsPrefix + "DummyGaugeNoReflectionAnnotation_dummyGauge", "1234.0");
+    }
+
     private void assertMetricExactValue(String name, String val) {
         RestAssured.when().get("/metrics").then()
                 .body(containsString(name + " " + val));
@@ -187,6 +211,11 @@ public class MetricsTestCase {
 
     public void invokeMeter() {
         RestAssured.when().get("/metricsresource/meter").then()
+                .body(is("OK"));
+    }
+
+    public void invokeSimpleTimer() {
+        RestAssured.when().get("/metricsresource/simpletimer").then()
                 .body(is("OK"));
     }
 

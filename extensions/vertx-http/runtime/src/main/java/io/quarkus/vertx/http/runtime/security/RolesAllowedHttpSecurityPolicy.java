@@ -1,11 +1,11 @@
 package io.quarkus.vertx.http.runtime.security;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
+import java.util.function.Function;
 
 import io.quarkus.security.identity.SecurityIdentity;
-import io.vertx.core.http.HttpServerRequest;
+import io.smallrye.mutiny.Uni;
+import io.vertx.ext.web.RoutingContext;
 
 /**
  * permission checker that handles role based permissions
@@ -30,12 +30,18 @@ public class RolesAllowedHttpSecurityPolicy implements HttpSecurityPolicy {
     }
 
     @Override
-    public CompletionStage<CheckResult> checkPermission(HttpServerRequest request, SecurityIdentity identity) {
-        for (String i : rolesAllowed) {
-            if (identity.hasRole(i)) {
-                return CompletableFuture.completedFuture(CheckResult.PERMIT);
+    public Uni<CheckResult> checkPermission(RoutingContext request, Uni<SecurityIdentity> identity,
+            AuthorizationRequestContext requestContext) {
+        return identity.map(new Function<SecurityIdentity, CheckResult>() {
+            @Override
+            public CheckResult apply(SecurityIdentity securityIdentity) {
+                for (String i : rolesAllowed) {
+                    if (securityIdentity.hasRole(i)) {
+                        return CheckResult.PERMIT;
+                    }
+                }
+                return CheckResult.DENY;
             }
-        }
-        return CompletableFuture.completedFuture(CheckResult.DENY);
+        });
     }
 }

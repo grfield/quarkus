@@ -5,6 +5,8 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
 
 import org.jboss.logging.Logger;
@@ -25,7 +27,7 @@ public class ArcRecorder {
     /**
      * Used to hold the Supplier instances used for synthetic bean declarations.
      */
-    public static volatile Map<String, Supplier<Object>> supplierMap;
+    public static volatile Map<String, Supplier<?>> supplierMap;
 
     private static final Logger LOGGER = Logger.getLogger(ArcRecorder.class.getName());
 
@@ -40,8 +42,16 @@ public class ArcRecorder {
         return container;
     }
 
-    public void initSupplierBeans(Map<String, Supplier<Object>> beans) {
-        supplierMap = beans;
+    public void initExecutor(ExecutorService executor) {
+        Arc.setExecutor(executor);
+    }
+
+    public void initStaticSupplierBeans(Map<String, Supplier<?>> beans) {
+        supplierMap = new ConcurrentHashMap<>(beans);
+    }
+
+    public void initRuntimeSupplierBeans(Map<String, Supplier<?>> beans) {
+        supplierMap.putAll(beans);
     }
 
     public BeanContainer initBeanContainer(ArcContainer container, List<BeanContainerListener> listeners,
@@ -114,6 +124,15 @@ public class ArcRecorder {
             @Override
             public Object get() {
                 return value.getValue();
+            }
+        };
+    }
+
+    public BeanContainerListener initCommandLineArgs(Supplier<String[]> args) {
+        return new BeanContainerListener() {
+            @Override
+            public void created(BeanContainer container) {
+                container.instance(CommandLineArgumentsProducer.class).setCommandLineArgs(args);
             }
         };
     }

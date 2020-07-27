@@ -123,6 +123,14 @@ public class PersonResource {
     }
 
     @GET
+    @Path("/name-pageable/{name}")
+    @Produces("text/plain")
+    public String byNamePageable(@PathParam("name") String name) {
+        return personRepository.findByName(name, PageRequest.of(0, 2, Sort.by(new Sort.Order(Sort.Direction.DESC, "id"))))
+                .stream().map(Person::getId).map(Object::toString).collect(Collectors.joining(","));
+    }
+
+    @GET
     @Path("/name/joinedOrder/{name}/page/{size}/{num}")
     public String byNamePage(@PathParam("name") String name, @PathParam("size") int pageSize, @PathParam("num") int pageNum) {
         Page<Person> page = personRepository.findByNameOrderByJoined(name, PageRequest.of(pageNum, pageSize));
@@ -198,6 +206,20 @@ public class PersonResource {
     @Produces("application/json")
     public List<Person> findPeopleByAddressZipCode(@PathParam("zipCode") String zipCode) {
         return personRepository.findPeopleByAddressZipCode(zipCode);
+    }
+
+    @GET
+    @Path("/addressId/{id}")
+    @Produces("application/json")
+    public List<Person> findByAddressId(@PathParam("id") Long id) {
+        return personRepository.findByAddressId(id);
+    }
+
+    @GET
+    @Path("/addressStreetNumber/{streetNumber}")
+    @Produces("application/json")
+    public List<Person> findByAddressStreetNumber(@PathParam("streetNumber") String streetNumber) {
+        return personRepository.findByAddressStreetNumber(streetNumber);
     }
 
     private Date changeNow(LocalDate now, BiFunction<LocalDate, Long, LocalDate> function, long diff) {

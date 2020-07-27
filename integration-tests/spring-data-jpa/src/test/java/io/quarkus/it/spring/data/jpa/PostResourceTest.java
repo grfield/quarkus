@@ -2,6 +2,7 @@ package io.quarkus.it.spring.data.jpa;
 
 import static io.restassured.RestAssured.when;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.is;
 
 import java.util.List;
 
@@ -30,5 +31,41 @@ public class PostResourceTest {
     void testByBypassTrue() {
         when().get("/post/bypass/true").then()
                 .statusCode(204);
+    }
+
+    @Test
+    void testByPostedAtBefore() {
+        when().get("/post/postedBeforeNow").then()
+                .statusCode(200)
+                .body("size()", is(3));
+    }
+
+    @Test
+    void testByByOrganization() {
+        when().get("/post/organization/RH").then()
+                .statusCode(200)
+                .body("size()", is(3));
+
+        when().get("/post/organization/RHT").then()
+                .statusCode(200)
+                .body("size()", is(0));
+    }
+
+    @Test
+    void testPostCommentByPostId() {
+        when().get("/post/postComment/postId/1").then()
+                .statusCode(200)
+                .body("size()", is(2));
+
+        when().get("/post/postComment/postId/10").then()
+                .statusCode(200)
+                .body("size()", is(0));
+    }
+
+    @Test
+    void testAllPostComment() {
+        when().get("/post/postComment/all").then()
+                .statusCode(200)
+                .body("size()", is(2));
     }
 }
